@@ -46,6 +46,7 @@ default: help
 
 .PHONY: help test check generate deploy infra preflight e2e clean
 .PHONY: infra-create infra-plan infra-fmt infra-validate infra-show infra-status infra-destroy infra-init
+.PHONY: infra-rag-destroy
 .PHONY: infra-backend-show
 .PHONY: release major minor patch
 .PHONY: _release-pre _release-bump _release-tag _release-gh
@@ -148,6 +149,12 @@ infra-destroy: infra-init ## terraform destroy workload stack; drop infra/output
 	terraform -chdir=infra destroy -input=false -auto-approve -var-file=$(TF_VAR_FILE)
 	rm -f infra/outputs.json
 
+infra-rag-destroy: infra-init ## stop RAG Engine Spanner billing; keep bucket and service account
+	$(call header,Destroy RAG Engine)
+	terraform -chdir=infra destroy -input=false -auto-approve -var-file=$(TF_VAR_FILE) \
+		-target=google_vertex_ai_rag_engine_config.basic
+	echo "RAG Engine in us-east5 is destroyed. The corpus is deleted. The bucket and service account remain. gmake infra-create turns Basic back on; gmake deploy imports the corpus again."
+
 ##@ Release:
 part := $(firstword $(filter major minor patch,$(MAKECMDGOALS)))
 ifneq ($(filter release,$(MAKECMDGOALS)),)
@@ -193,13 +200,14 @@ uv.lock: pyproject.toml
 help:
 	$(info $(blue)Usage: $(green)gmake [recipe]$(reset))
 	$(info )
-	$(info $(yellow)test$(reset)          unit tests)
-	$(info $(yellow)check$(reset)         ruff + unit tests)
-	$(info $(yellow)generate$(reset)      sample applications, local only)
-	$(info $(yellow)deploy$(reset)        terraform apply + talos deploy --wait)
-	$(info $(yellow)e2e$(reset)           check, apply, generate, deploy, live pytest)
-	$(info $(yellow)infra-create$(reset)  terraform apply in $(PROJECT))
-	$(info $(yellow)infra-plan$(reset)    terraform plan)
-	$(info $(yellow)infra-destroy$(reset) terraform destroy workload stack)
-	$(info $(yellow)release$(reset)       gmake release major|minor|patch)
+	$(info $(yellow)test$(reset)              unit tests)
+	$(info $(yellow)check$(reset)             ruff + unit tests)
+	$(info $(yellow)generate$(reset)          sample applications, local only)
+	$(info $(yellow)deploy$(reset)            terraform apply + talos deploy --wait)
+	$(info $(yellow)e2e$(reset)               check, apply, generate, deploy, live pytest)
+	$(info $(yellow)infra-create$(reset)      terraform apply in $(PROJECT))
+	$(info $(yellow)infra-plan$(reset)        terraform plan)
+	$(info $(yellow)infra-destroy$(reset)     terraform destroy workload stack)
+	$(info $(yellow)infra-rag-destroy$(reset) stop RAG Engine billing; keep the bucket)
+	$(info $(yellow)release$(reset)           gmake release major|minor|patch)
 	:
