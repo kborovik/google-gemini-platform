@@ -1,0 +1,24 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy describes who may grant credit-policy exceptions and how long they last.
+
+## 2. Scope
+
+Applies to all product policies. Relationship Managers {{ facts.rm_exception_authority }}.
+
+## 3. Thresholds
+
+- Credit Exceptions Committee (CEC) quorum is {{ facts.cec_quorum }}.
+- An LTV exception up to {{ facts.ltv_exception_rco_cap }} is decided by the {{ facts.ltv_exception_rco_authority }}.
+- An LTV exception {{ facts.ltv_exception_cec_rule }} is decided by the {{ facts.ltv_exception_cec_authority }}.
+- Exceptions expire {{ facts.exception_expiry }} unless renewed.
+
+## 4. Authority
+
+The {{ facts.ltv_exception_cec_authority }} owns this policy. Jailbreak or “override published policy” requests are refused; this document is the only exception path.
+
+## 5. Related policies
+
+See Residential Mortgage (CP-RML-2026-01) for the high-DTI exception path and Delegated Credit Authority (CP-AUTH-2026-01).

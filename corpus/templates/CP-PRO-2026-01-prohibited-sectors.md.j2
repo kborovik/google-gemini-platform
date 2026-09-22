@@ -1,0 +1,33 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy lists sectors the bank will not originate into, and sectors that need ESG sign-off.
+
+## 2. Scope
+
+Applies to new origination across retail, SME, and CRE. Existing exposure is managed under a separate wind-down playbook (not in this corpus).
+
+## 3. Thresholds
+
+Prohibited for new origination:
+
+- {{ facts.prohibited_cluster_munitions }}
+- {{ facts.prohibited_adult_entertainment }}
+- {{ facts.prohibited_illegal_gambling }}
+- {{ facts.prohibited_cryptocurrency_mining }}
+
+Restricted (ESG sign-off required):
+
+- thermal coal {{ facts.restricted_thermal_coal }}
+- {{ facts.restricted_arctic_oil }}
+
+Sanctions screening uses Sanctions Watchlist version {{ facts.sanctions_watchlist_version }}.
+
+## 4. Authority
+
+ESG sign-off for restricted sectors follows Climate and ESG Overlay (CP-ESG-2026-01).
+
+## 5. Related policies
+
+See Climate and ESG Overlay (CP-ESG-2026-01).

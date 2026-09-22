@@ -1,0 +1,25 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy sets how Contoso Demo Bank values collateral for credit decisions.
+
+## 2. Scope
+
+Applies to residential mortgages, CRE, and inventory-secured SME facilities.
+
+## 3. Thresholds
+
+- Residential appraisal maximum age is {{ facts.residential_appraisal_max_age }}.
+- An AVM is allowed only if LTV is ≤ {{ facts.avm_max_ltv }} and the loan is ≤ {{ facts.avm_max_loan }}.
+- CRE valuation maximum age is {{ facts.cre_valuation_max_age }}.
+- Inventory collateral haircut is {{ facts.inventory_collateral_haircut }}.
+- A licensed appraiser is required above the AVM threshold.
+
+## 4. Authority
+
+Valuation exceptions follow Exceptions and Override (CP-EXC-2026-01).
+
+## 5. Related policies
+
+See Residential Mortgage (CP-RML-2026-01) and Commercial Real Estate (CP-CRE-2026-01).

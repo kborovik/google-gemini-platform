@@ -1,0 +1,34 @@
+# Credit application {{ app.application_id }}
+
+## Identity
+
+- Name: {{ app.customer_name }}
+- Customer id: {{ app.customer_id }}
+- Address: {{ app.address }}
+- Age band: {{ app.age_band }}
+- Employer: {{ app.employer }}
+- Annual income: {{ app.annual_income }}
+- Email: {{ app.email }}
+- Phone: {{ app.phone }}
+
+## Product
+
+{{ app.product }}
+
+## Amount and financials
+
+{% for key, value in app.facility.items() -%}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Attached documents
+
+I am listing the titles of documents I am submitting. I am not enclosing the files.
+
+{% for title in app.attached_documents -%}
+- {{ title }}
+{% endfor %}
+
+## Applicant statement
+
+{{ app.narrative }}

@@ -1,0 +1,25 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy sets Contoso Demo Bank small and medium enterprise (SME) lending limits.
+
+## 2. Scope
+
+Applies to working-capital, term, and revolving facilities to SME borrowers. Construction SME facilities also follow CP-CND-2026-01.
+
+## 3. Thresholds
+
+- Maximum SME facility is {{ facts.max_sme_facility }}.
+- A personal guarantee is required above {{ facts.personal_guarantee_threshold }}.
+- Working-capital maximum tenor is {{ facts.working_capital_max_tenor }}.
+- Sector concentration cap is {{ facts.sme_sector_concentration_cap }} of the SME book per NAICS 2-digit code.
+- Minimum years in operation is {{ facts.min_years_in_operation }}.
+
+## 4. Authority
+
+Regional Credit Officer SME limits are in Delegated Credit Authority (CP-AUTH-2026-01).
+
+## 5. Related policies
+
+See Documentation (CP-DOC-2026-01) and Delegated Credit Authority (CP-AUTH-2026-01).

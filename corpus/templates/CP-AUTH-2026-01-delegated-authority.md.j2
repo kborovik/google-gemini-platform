@@ -1,0 +1,24 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy assigns approval limits by role. Amounts above a role’s limit go to the {{ facts.above_limits_authority }}.
+
+## 2. Scope
+
+Applies to origination and limit increases. Policy exceptions are not delegated here; see CP-EXC-2026-01.
+
+## 3. Thresholds
+
+- Relationship Manager unsecured approval is ≤ {{ facts.rm_unsecured_limit }}.
+- Branch Credit Manager residential approval is ≤ {{ facts.branch_credit_manager_residential_limit }} and LTV ≤ {{ facts.branch_credit_manager_max_ltv }}.
+- Regional Credit Officer SME approval is ≤ {{ facts.regional_credit_officer_sme_limit }}.
+- Above these limits → {{ facts.above_limits_authority }}.
+
+## 4. Authority
+
+The {{ facts.above_limits_authority }} owns this matrix. Relationship Managers cannot approve policy exceptions (CP-EXC-2026-01).
+
+## 5. Related policies
+
+See Exceptions and Override (CP-EXC-2026-01), Unsecured Consumer (CP-UCL-2026-01), and SME Lending (CP-SME-2026-01).

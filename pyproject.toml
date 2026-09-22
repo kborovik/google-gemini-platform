@@ -1,0 +1,52 @@
+[project]
+name = "talos"
+version = "0.1.0"
+description = "CLI to deploy and test the Contoso Demo Bank credit-policy agent on Gemini Enterprise Agent Platform."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "click>=8.1",
+    "google-auth>=2.40",
+    "google-cloud-storage>=2.19",
+    "jinja2>=3.1.6",
+    "pyyaml>=6.0.3",
+    "requests>=2.32.0",
+]
+
+[project.scripts]
+talos = "talos.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+default-groups = ["dev"]
+python-preference = "managed"
+
+[tool.ruff]
+target-version = "py314"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E402"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-timeout>=2.3",
+    "ruff>=0.16.6",
+]
+
+[tool.pytest.ini_options]
+addopts = "-m unit"
+markers = [
+    "unit: corpus contract and CLI tests, no Google Cloud",
+    "ingestion: live Cloud Storage + RAG import status",
+    "retrieval: live RAG retrieve",
+    "agent: live Gemini generateContent with the RAG tool",
+    "teams: reserved; Google Chat is not part of v1",
+]
+testpaths = ["tests"]
+timeout = 180

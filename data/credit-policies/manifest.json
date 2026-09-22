@@ -1,0 +1,176 @@
+{
+  "generated_at": "2026-09-14T20:38:07Z",
+  "container": "credit-policies",
+  "documents": [
+    {
+      "id": "CP-RML-2026-01",
+      "title": "Residential Mortgage Lending Policy",
+      "filename": "CP-RML-2026-01-residential-mortgage.md",
+      "blob_path": "CP-RML-2026-01-residential-mortgage.md",
+      "content_sha256": "63fbe67e3475c9ca482af88f76a7575e50d406ff75aa69321699dee05b5a2f2a",
+      "topics": [
+        "residential",
+        "ltv",
+        "dti",
+        "mortgage"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-CRE-2026-01",
+      "title": "Commercial Real Estate Lending Policy",
+      "filename": "CP-CRE-2026-01-commercial-real-estate.md",
+      "blob_path": "CP-CRE-2026-01-commercial-real-estate.md",
+      "content_sha256": "f46cb55e28109c6796a13e019596c9286e6cacdef0ca30c5b21d3dd9ff688001",
+      "topics": [
+        "cre",
+        "dscr",
+        "ltv",
+        "construction"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-UCL-2026-01",
+      "title": "Unsecured Consumer Lending Policy",
+      "filename": "CP-UCL-2026-01-unsecured-consumer.md",
+      "blob_path": "CP-UCL-2026-01-unsecured-consumer.md",
+      "content_sha256": "08d47fe02c39141b4cb167aa55187b301f3da883380762c57efabe731604ae78",
+      "topics": [
+        "unsecured",
+        "consumer",
+        "personal-loan"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-SME-2026-01",
+      "title": "SME Lending Policy",
+      "filename": "CP-SME-2026-01-sme-lending.md",
+      "blob_path": "CP-SME-2026-01-sme-lending.md",
+      "content_sha256": "0f78045536a9ced6ad1f3660531a10007f861bb7b5059975c09bafa696824bb7",
+      "topics": [
+        "sme",
+        "guarantee",
+        "concentration"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-EXC-2026-01",
+      "title": "Exceptions and Override Policy",
+      "filename": "CP-EXC-2026-01-exceptions-overrides.md",
+      "blob_path": "CP-EXC-2026-01-exceptions-overrides.md",
+      "content_sha256": "edb156fa43b89f2c0b54def01589053ae6f47e7384dbf1c564d1bb73d8e70531",
+      "topics": [
+        "exceptions",
+        "override",
+        "authority"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-PRO-2026-01",
+      "title": "Prohibited Sectors Policy",
+      "filename": "CP-PRO-2026-01-prohibited-sectors.md",
+      "blob_path": "CP-PRO-2026-01-prohibited-sectors.md",
+      "content_sha256": "26bfbcad56749d39530b65121f3b28127b2168caab5a5ff9d5d5009748216ee3",
+      "topics": [
+        "prohibited",
+        "sanctions",
+        "esg"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-COL-2026-01",
+      "title": "Collateral Valuation Policy",
+      "filename": "CP-COL-2026-01-collateral-valuation.md",
+      "blob_path": "CP-COL-2026-01-collateral-valuation.md",
+      "content_sha256": "9a68b68a6342fea4814adcd200ae4dd2d81ac3bf0a61c5949acdeaf6f49402d3",
+      "topics": [
+        "collateral",
+        "appraisal",
+        "avm"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-DOC-2026-01",
+      "title": "Credit Documentation Policy",
+      "filename": "CP-DOC-2026-01-documentation.md",
+      "blob_path": "CP-DOC-2026-01-documentation.md",
+      "content_sha256": "2513e7f20bf460e6c01daf122faae34d686e2839370d95e5e8c998222bcbfa41",
+      "topics": [
+        "documentation",
+        "kyc",
+        "retention"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-RPL-2026-01",
+      "title": "Related-Party Lending Policy",
+      "filename": "CP-RPL-2026-01-related-party.md",
+      "blob_path": "CP-RPL-2026-01-related-party.md",
+      "content_sha256": "b48630478a1a039778b4034f5ae41a82767c7b6d9d336a22ed2b2a1f74ee9d2b",
+      "topics": [
+        "related-party",
+        "board",
+        "exposure"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-ESG-2026-01",
+      "title": "Climate and ESG Overlay Policy",
+      "filename": "CP-ESG-2026-01-climate-esg.md",
+      "blob_path": "CP-ESG-2026-01-climate-esg.md",
+      "content_sha256": "f2cb65fb64879c34ddcf82e61ae8964e401cd3e896f4da4a2ee04477c92b3d5e",
+      "topics": [
+        "esg",
+        "climate",
+        "flood"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-CND-2026-01",
+      "title": "Construction and Development Lending Policy",
+      "filename": "CP-CND-2026-01-construction-development.md",
+      "blob_path": "CP-CND-2026-01-construction-development.md",
+      "content_sha256": "e01a9a83cd1bb762ed65f2e6c192ea0eda0f396da4148ab5802f3f78181326e6",
+      "topics": [
+        "construction",
+        "land",
+        "inspection"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    },
+    {
+      "id": "CP-AUTH-2026-01",
+      "title": "Delegated Credit Authority Policy",
+      "filename": "CP-AUTH-2026-01-delegated-authority.md",
+      "blob_path": "CP-AUTH-2026-01-delegated-authority.md",
+      "content_sha256": "f4f1799289bbac362e63a158d3b7bff531dd6eec8591c9e4f414089ffd9a060a",
+      "topics": [
+        "authority",
+        "delegation",
+        "limits"
+      ],
+      "version": "2026.1",
+      "effective_date": "2026-01-15"
+    }
+  ]
+}

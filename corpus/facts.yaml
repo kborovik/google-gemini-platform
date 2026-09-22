@@ -1,0 +1,162 @@
+documents:
+  - id: CP-RML-2026-01
+    title: Residential Mortgage Lending Policy
+    filename: CP-RML-2026-01-residential-mortgage.md
+    topics: [residential, ltv, dti, mortgage]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      max_ltv_owner_occupied: "80%"
+      max_ltv_investment: "70%"
+      max_dti_residential: "43%"
+      high_dti_exception: "45%"
+      high_dti_exception_authority: "Credit Exceptions Committee"
+      min_credit_score_residential: "680"
+      cash_out_max_ltv: "65%"
+      owning_committee_residential: "Residential Credit Committee"
+
+  - id: CP-CRE-2026-01
+    title: Commercial Real Estate Lending Policy
+    filename: CP-CRE-2026-01-commercial-real-estate.md
+    topics: [cre, dscr, ltv, construction]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      max_ltv_stabilized_cre: "65%"
+      min_dscr_stabilized_cre: "1.25x"
+      max_ltv_construction_cre: "55%"
+      interest_only_max_cre: "24 months"
+      vacancy_stress: "10%"
+      owning_committee_cre: "Commercial Credit Committee"
+
+  - id: CP-UCL-2026-01
+    title: Unsecured Consumer Lending Policy
+    filename: CP-UCL-2026-01-unsecured-consumer.md
+    topics: [unsecured, consumer, personal-loan]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      max_personal_loan: "USD 50,000"
+      max_term_unsecured: "60 months"
+      min_fico_unsecured: "700"
+      max_dti_unsecured: "36%"
+      rate_floor_unsecured: "8.75% APR"
+      unsecured_interest_only: "no interest-only unsecured"
+
+  - id: CP-SME-2026-01
+    title: SME Lending Policy
+    filename: CP-SME-2026-01-sme-lending.md
+    topics: [sme, guarantee, concentration]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      max_sme_facility: "USD 2,500,000"
+      personal_guarantee_threshold: "USD 250,000"
+      working_capital_max_tenor: "12 months"
+      sme_sector_concentration_cap: "15%"
+      min_years_in_operation: "3 years"
+
+  - id: CP-EXC-2026-01
+    title: Exceptions and Override Policy
+    filename: CP-EXC-2026-01-exceptions-overrides.md
+    topics: [exceptions, override, authority]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      rm_exception_authority: "cannot approve policy exceptions"
+      cec_quorum: "3 voting members"
+      ltv_exception_rco_cap: "+5 percentage points"
+      ltv_exception_rco_authority: "Regional Credit Officer"
+      ltv_exception_cec_rule: "greater than +5 percentage points"
+      ltv_exception_cec_authority: "Credit Exceptions Committee"
+      exception_expiry: "90 days"
+
+  - id: CP-PRO-2026-01
+    title: Prohibited Sectors Policy
+    filename: CP-PRO-2026-01-prohibited-sectors.md
+    topics: [prohibited, sanctions, esg]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      prohibited_cluster_munitions: "cluster munitions"
+      prohibited_adult_entertainment: "adult entertainment"
+      prohibited_illegal_gambling: "illegal gambling"
+      prohibited_cryptocurrency_mining: "cryptocurrency mining"
+      restricted_thermal_coal: ">25% revenue"
+      restricted_arctic_oil: "arctic oil exploration"
+      sanctions_watchlist_version: "v4.2"
+
+  - id: CP-COL-2026-01
+    title: Collateral Valuation Policy
+    filename: CP-COL-2026-01-collateral-valuation.md
+    topics: [collateral, appraisal, avm]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      residential_appraisal_max_age: "90 days"
+      avm_max_ltv: "60%"
+      avm_max_loan: "USD 400,000"
+      cre_valuation_max_age: "120 days"
+      inventory_collateral_haircut: "35%"
+
+  - id: CP-DOC-2026-01
+    title: Credit Documentation Policy
+    filename: CP-DOC-2026-01-documentation.md
+    topics: [documentation, kyc, retention]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      self_employed_tax_returns: "2 years"
+      wage_pay_stubs: "last 2 pay stubs"
+      wage_w2: "W-2"
+      file_retention: "7 years"
+      kyc_refresh_sme: "36 months"
+
+  - id: CP-RPL-2026-01
+    title: Related-Party Lending Policy
+    filename: CP-RPL-2026-01-related-party.md
+    topics: [related-party, board, exposure]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      related_party_ownership_threshold: "≥10%"
+      related_party_approval: "Board Credit Subcommittee"
+      max_related_party_exposure: "5% of Tier 1 capital"
+      related_party_unsecured_ban: "no related-party unsecured consumer loans"
+
+  - id: CP-ESG-2026-01
+    title: Climate and ESG Overlay Policy
+    filename: CP-ESG-2026-01-climate-esg.md
+    topics: [esg, climate, flood]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      climate_risk_flood_zones: "A/V"
+      high_climate_risk_max_ltv: "55%"
+      financed_emissions_threshold: "USD 1,000,000"
+
+  - id: CP-CND-2026-01
+    title: Construction and Development Lending Policy
+    filename: CP-CND-2026-01-construction-development.md
+    topics: [construction, land, inspection]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      max_ltv_land: "50%"
+      interest_reserve_minimum: "12 months"
+      inspection_frequency: "monthly"
+      completion_guarantee: "completion guarantee"
+      construction_interest_only_max: "18 months"
+
+  - id: CP-AUTH-2026-01
+    title: Delegated Credit Authority Policy
+    filename: CP-AUTH-2026-01-delegated-authority.md
+    topics: [authority, delegation, limits]
+    version: "2026.1"
+    effective_date: "2026-01-15"
+    facts:
+      rm_unsecured_limit: "USD 25,000"
+      branch_credit_manager_residential_limit: "USD 750,000"
+      branch_credit_manager_max_ltv: "75%"
+      regional_credit_officer_sme_limit: "USD 1,000,000"
+      above_limits_authority: "Credit Committee"

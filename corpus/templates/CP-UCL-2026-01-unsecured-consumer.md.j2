@@ -1,0 +1,26 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy sets Contoso Demo Bank unsecured consumer (personal loan) limits.
+
+## 2. Scope
+
+Applies to unsecured personal loans to natural persons. Related-party unsecured consumer loans are prohibited under CP-RPL-2026-01.
+
+## 3. Thresholds
+
+- Maximum personal loan amount is {{ facts.max_personal_loan }}.
+- Maximum term is {{ facts.max_term_unsecured }}.
+- Minimum FICO is {{ facts.min_fico_unsecured }}.
+- Maximum DTI for unsecured consumer loans is {{ facts.max_dti_unsecured }}.
+- Rate floor is {{ facts.rate_floor_unsecured }}.
+- The bank originates {{ facts.unsecured_interest_only }} loans.
+
+## 4. Authority
+
+Relationship Manager unsecured approval limits are in Delegated Credit Authority (CP-AUTH-2026-01). Amounts above the personal-loan cap are out of policy.
+
+## 5. Related policies
+
+See Related-Party Lending (CP-RPL-2026-01) and Delegated Credit Authority (CP-AUTH-2026-01).

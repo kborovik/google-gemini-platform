@@ -1,0 +1,26 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy sets Contoso Demo Bank residential mortgage underwriting limits. The owning committee is the {{ facts.owning_committee_residential }}. It is effective {{ doc.effective_date }}.
+
+## 2. Scope
+
+Applies to first-lien owner-occupied, investment, and cash-out residential mortgages originated by the bank. Home-equity lines follow the cash-out LTV cap.
+
+## 3. Thresholds
+
+- Maximum LTV for an owner-occupied residential mortgage is {{ facts.max_ltv_owner_occupied }}.
+- Maximum LTV for an investment residential mortgage is {{ facts.max_ltv_investment }}.
+- Maximum DTI for residential mortgages is {{ facts.max_dti_residential }}.
+- A high-DTI exception to {{ facts.high_dti_exception }} requires the {{ facts.high_dti_exception_authority }}.
+- Minimum credit score for residential mortgages is {{ facts.min_credit_score_residential }}.
+- Cash-out refinance maximum LTV is {{ facts.cash_out_max_ltv }}.
+
+## 4. Authority
+
+The {{ facts.owning_committee_residential }} owns this policy. Exceptions beyond the high-DTI path follow the Exceptions and Override Policy.
+
+## 5. Related policies
+
+See Exceptions and Override (CP-EXC-2026-01), Collateral Valuation (CP-COL-2026-01), and Delegated Credit Authority (CP-AUTH-2026-01).

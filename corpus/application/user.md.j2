@@ -1,0 +1,44 @@
+Generate one unique ClientApplication JSON object (customer filing).
+
+Required values (use exactly):
+- application_id: {{ application_id }}
+- customer_id: {{ customer_id }}
+- product: {{ product_label }}
+- expected_outcome: {{ application_type }}
+- attached_documents:
+{% for title in attached_documents %}  - {{ title }}
+{% endfor %}
+
+Operator constraint (do NOT copy into JSON): intended slot {{ application_type }}; product family {{ product_family }}. Never write those labels, ApplicationType, or a judgement into any field. Do not put a disclaimer or watermark in any JSON field, including narrative.
+
+Already-used identities (do not reuse):
+{% for item in used_identities -%}
+- {{ item }}
+{% else -%}
+- (none)
+{% endfor %}
+
+JSON schema:
+{{ schema }}
+
+Policy facts.yaml (verbatim literals; drive the facility numbers):
+{{ facts_yaml }}
+
+Facility numbers for this product (facts.yaml literals; do not comment on policy in the narrative):
+{{ facility_hint }}
+{% if application_type == "accepted" %}
+All of those published numeric thresholds must clear (strictly inside the limit). Put the matching figures in facility. Include every required policy fact (appraisal_date and licensed_appraiser for residential; valuation_date for CRE) so the file is complete.
+{% elif application_type == "rejected" %}
+Breach at least one of those published numeric limits. Put the breaching figure in facility. Still include every required policy fact so the file is complete, not missing-data. Do not say that it fails or should be declined.
+{% else %}
+Facility numbers may clear published limits. attached_documents is already missing at least one required title. Do not mention omitted documents.
+{% endif %}
+
+{% if previous_errors %}
+The previous JSON failed validation. Fix every item:
+{% for err in previous_errors -%}
+- {{ err }}
+{% endfor %}
+{% endif %}
+
+Return JSON only.

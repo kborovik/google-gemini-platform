@@ -1,0 +1,24 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy sets minimum credit-file documents and retention.
+
+## 2. Scope
+
+Applies to consumer, residential, SME, and CRE origination files.
+
+## 3. Thresholds
+
+- Self-employed borrowers: {{ facts.self_employed_tax_returns }} tax returns plus YTD P&L.
+- Wage earners: {{ facts.wage_pay_stubs }} and {{ facts.wage_w2 }}.
+- File retention is {{ facts.file_retention }} after payoff.
+- KYC refresh every {{ facts.kyc_refresh_sme }} for existing SME customers.
+
+## 4. Authority
+
+Incomplete files may not be approved under Delegated Credit Authority (CP-AUTH-2026-01).
+
+## 5. Related policies
+
+See SME Lending (CP-SME-2026-01) and Related-Party Lending (CP-RPL-2026-01).

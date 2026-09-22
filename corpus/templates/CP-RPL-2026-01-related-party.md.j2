@@ -1,0 +1,24 @@
+{% include "_header.md.j2" %}
+
+## 1. Purpose
+
+This policy limits lending to related parties of Contoso Demo Bank.
+
+## 2. Scope
+
+Applies to directors, officers, and owners at or above the ownership threshold, and to entities they control.
+
+## 3. Thresholds
+
+- A related party is {{ facts.related_party_ownership_threshold }} ownership or a board seat.
+- Approval authority is the {{ facts.related_party_approval }}.
+- Maximum aggregate related-party exposure is {{ facts.max_related_party_exposure }}.
+- The bank originates {{ facts.related_party_unsecured_ban }}.
+
+## 4. Authority
+
+Only the {{ facts.related_party_approval }} may approve related-party credit. Product committees cannot waive this policy.
+
+## 5. Related policies
+
+See Unsecured Consumer (CP-UCL-2026-01) and Exceptions and Override (CP-EXC-2026-01).
