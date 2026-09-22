@@ -46,6 +46,7 @@ V13: wait-gate — `talos deploy --wait` requires local policy files ≥ 12 and 
 V14: application-generate — opaque `CA-{YYYYMMDD}-{unix_ms}`; intended outcome only in `manifest.json`; mixed product per type; validate + one retry; prompts do not inject disclaimer phrases
 V15: readme-hiring-manager — README.md is for a hiring manager: accurate, short, not an engineer runbook
 V16: tfvars — apply `-var-file=lab5-gemini-dev1.tfvars`; terraform variables are only `project` and `region`
+V17: generateContent — chat model per §V.7; workload location outside global, us, eu → publisher location global (host aiplatform.googleapis.com); location global or us or eu kept; RAG corpus URLs stay on workload location (§B.1)
 
 ## §T TASKS
 
@@ -56,7 +57,9 @@ T3|x|reuse application document generation on Gemini JSON mode|V14,I.cmd
 T4|x|terraform GCS bucket + RAG Engine tier + agent service account; canonical outputs|V8,V10,V16,I.infra
 T5|x|talos deploy hash-skip upload + RAG import + --wait|V6,V10,V13,I.cmd
 T6|x|talos chat grounded generateContent + REPL|V1,V3,V4,I.cmd
+T7|.|sync chat model id to gemini-3.8-flash and publish generateContent on global for a single-region workload|V7,V17,I.cmd
 
 ## §B BUGS
 
 id|date|cause|fix
+B1|2026-09-22|generateContent used workload region; gemini-3.8-flash 404 off global, us, and eu|V17
