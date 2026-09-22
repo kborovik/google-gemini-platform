@@ -57,7 +57,7 @@ T3|x|reuse application document generation on Gemini JSON mode|V14,I.cmd
 T4|x|terraform GCS bucket + RAG Engine tier + agent service account; canonical outputs|V8,V10,V16,I.infra
 T5|x|talos deploy hash-skip upload + RAG import + --wait|V6,V10,V13,I.cmd
 T6|x|talos chat grounded generateContent + REPL|V1,V3,V4,I.cmd
-T7|.|sync chat model id to gemini-3.8-flash and publish generateContent on global for a single-region workload|V7,V17,I.cmd
+T7|x|sync chat model id to gemini-3.8-flash and publish generateContent on global for a single-region workload|V7,V17,I.cmd
 
 ## §B BUGS
 
