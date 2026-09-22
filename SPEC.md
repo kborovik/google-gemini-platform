@@ -15,7 +15,7 @@ Demo Gemini prompt (1) answers credit-policy questions from 12 Contoso Demo Bank
 - CPython 3.14; `requires-python = ">=3.14"`; `[tool.uv] python-preference = "managed"`; no PEP 723 under `src/`
 - one CLI `talos` (generate, deploy, chat); unit via `gmake test` → `uv run pytest`
 - workload project `lab5-gemini-dev1`; region `us-east1`; state bucket `terraform-lab5-gemini-dev1` owned by gcp-lab5-org
-- chat model `gemini-3.5-flash`; embedding `text-embedding-005`
+- chat model `gemini-3.8-flash`; embedding `text-embedding-005`
 - no Application Integration / Dialogflow in v1 Terraform
 - default CI = unit corpus/CLI tests; live Google Cloud behind pytest markers
 
@@ -23,7 +23,7 @@ Demo Gemini prompt (1) answers credit-policy questions from 12 Contoso Demo Bank
 
 - cmd: `uv run talos generate` Click group; bare → help exit 2. `generate policy` renders facts+templates, writes `data/credit-policies/`, optional GCS upload; `--local-only` / `--gcs-only` mutex; `--dry-run` / `--force` / `--fail-if-missing-gcs` / `--no-terraform`. `generate application` calls Gemini JSON mode; `--type` or `--all`; `--count`; `--force --application-id`; `--local-only`; `--dry-run` prints serials and does not call the model. `talos deploy` syncs both prefixes (hash-skip), ensures RAG corpus `kb-credit-policies`, imports both URIs, `--wait` polls the import and file counts. `talos chat` one-shot, stdin, or TTY REPL. `talos --completion bash|zsh|fish|powershell` prints Click source. Missing required env → exit 2.
 - env: `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GCS_BUCKET`, `GCS_URI`. Flags > process env > `infra/outputs.json` (unwrap `.value`). No `.env` load.
-- names: project `lab5-gemini-dev1`; region `us-east1`; bucket `lab5-gemini-dev1-credit-docs`; tfstate bucket `terraform-lab5-gemini-dev1` prefix `google-gemini-platform`; corpus display name `kb-credit-policies`; prefixes `credit-policies` and `client-applications`; model `gemini-3.5-flash`; embedding `text-embedding-005`
+- names: project `lab5-gemini-dev1`; region `us-east1`; bucket `lab5-gemini-dev1-credit-docs`; tfstate bucket `terraform-lab5-gemini-dev1` prefix `google-gemini-platform`; corpus display name `kb-credit-policies`; prefixes `credit-policies` and `client-applications`; model `gemini-3.8-flash`; embedding `text-embedding-005`
 - file: `corpus/facts.yaml`; `corpus/templates/*.md.j2`; committed `data/credit-policies/*.md` + `manifest.json`; gitignored `data/client-applications/*.md` + `manifest.json`; `agents/credit-policy-agent.instructions.md`; `tests/fixtures/golden_queries.yaml` (18 ids); `tests/fixtures/client-applications/`
 - infra: `infra/*.tf`; `infra/lab5-gemini-dev1.tfvars`; variable blocks = `project`, `region` only; GCS backend on the org-factory bucket; `infra-init` checks that bucket; `gmake infra-create` apply then `terraform output -json` → `infra/outputs.json`; `infra-destroy` does not delete the state bucket
 - pytest: markers `unit` `ingestion` `retrieval` `agent` `teams`; `addopts = "-m unit"`; `teams` always skipped (Google Chat not v1)
@@ -36,7 +36,7 @@ V3: citation — every factual claim cites a retrieved filename (`source_name`) 
 V4: stack-thin — v1 = Gemini + one RAG corpus + terminal client; no Google Chat host; no second corpus
 V5: corpus-shape — 12 policy Markdown files from `corpus/facts.yaml`; each fact value appears verbatim; applications are gitignored and append-only; fixtures live under `tests/fixtures/client-applications/`
 V6: hash-skip — object overwrite skip via metadata `content_sha256` lowercase hex SHA-256 of the UTF-8 bytes
-V7: models — chat `gemini-3.5-flash`; embedding `text-embedding-005` (`publishers/google/models/text-embedding-005`)
+V7: models — chat `gemini-3.8-flash`; embedding `text-embedding-005` (`publishers/google/models/text-embedding-005`)
 V8: region — workload project `lab5-gemini-dev1` in `us-east1`
 V9: talos-cli — one Click package `talos`; missing required env → exit 2; bare `talos generate` → help exit 2; generate does not deploy
 V10: deploy-split — bucket, APIs, RAG Engine tier, and service account via Terraform; object sync + corpus create + import via `talos deploy`
