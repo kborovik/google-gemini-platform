@@ -5,13 +5,32 @@ from typing import Any
 from talos.constants import DEFAULT_EMBEDDING_PUBLISHER_MODEL
 
 
+_MULTI_REGION_ROOTS = {
+    "us": "https://aiplatform.us.rep.googleapis.com/v1",
+    "eu": "https://aiplatform.eu.rep.googleapis.com/v1",
+}
+
+
 def aiplatform_root(location: str) -> str:
+    if location == "global":
+        return "https://aiplatform.googleapis.com/v1"
+    multi = _MULTI_REGION_ROOTS.get(location)
+    if multi is not None:
+        return multi
     return f"https://{location}-aiplatform.googleapis.com/v1"
 
 
+def model_publish_location(location: str) -> str:
+    """gemini-3.8-flash is published on global and us/eu, not on a single region."""
+    if location in {"global", "us", "eu"}:
+        return location
+    return "global"
+
+
 def generate_content_url(project: str, location: str, model: str) -> str:
+    publish = model_publish_location(location)
     return (
-        f"{aiplatform_root(location)}/projects/{project}/locations/{location}"
+        f"{aiplatform_root(publish)}/projects/{project}/locations/{publish}"
         f"/publishers/google/models/{model}:generateContent"
     )
 
