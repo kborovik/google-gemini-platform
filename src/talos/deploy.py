@@ -31,6 +31,7 @@ from talos.gemini import (
     rag_corpora_url,
     rag_files_url,
     rag_import_url,
+    rag_location,
 )
 from talos.generate import BlobStore, open_blob_store, sync_markdown_directory
 from talos.rest import RestClient, raise_for_status
@@ -135,7 +136,12 @@ class VertexRagOps:
         response = self._rest.request(
             "POST",
             rag_corpora_url(self._project, self._location),
-            json_body=corpus_create_body(display_name, CORPUS_DESCRIPTION),
+            json_body=corpus_create_body(
+                display_name,
+                CORPUS_DESCRIPTION,
+                project=self._project,
+                location=self._location,
+            ),
             timeout=60.0,
         )
         raise_for_status(response, "create RAG corpus")
@@ -148,7 +154,8 @@ class VertexRagOps:
             raise TalosError("create RAG corpus returned no operation", exit_code=1)
         import time
 
-        for _ in range(30):
+        deadline = time.monotonic() + WAIT_TIMEOUT_SECONDS
+        while True:
             done, error = self.operation_done(op_name)
             if error:
                 raise TalosError(f"create RAG corpus failed: {error}", exit_code=1)
@@ -164,8 +171,12 @@ class VertexRagOps:
                         exit_code=1,
                     )
                 return name
-            time.sleep(2)
-        raise TalosError("create RAG corpus timed out", exit_code=1)
+            if time.monotonic() >= deadline:
+                raise TalosError(
+                    f"create RAG corpus timed out after {WAIT_TIMEOUT_SECONDS}s",
+                    exit_code=1,
+                )
+            time.sleep(POLL_INTERVAL_SECONDS)
 
     def import_uris(self, corpus: str, uris: list[str]) -> str:
         response = self._rest.request(
@@ -329,7 +340,7 @@ def run_deploy(
 def _default_rag(config: DeployConfig) -> VertexRagOps:
     from talos.rest import RequestsRest
 
-    return VertexRagOps(RequestsRest(), config.project, config.location)
+    return VertexRagOps(RequestsRest(), config.project, rag_location(config.location))
 
 
 def _assert_local_wait_ready(policy_dir: Path, application_dir: Path) -> None:

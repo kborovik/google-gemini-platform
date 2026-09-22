@@ -7,6 +7,11 @@ from talos.env import repo_root
 pytestmark = pytest.mark.unit
 
 
+def test_rag_engine_tier_is_outside_the_allowlist() -> None:
+    text = (repo_root() / "infra/rag.tf").read_text(encoding="utf-8")
+    assert 'region  = "us-east5"' in text
+
+
 def test_tfvars_pin_lab5_gemini_dev1() -> None:
     text = (repo_root() / "infra/lab5-gemini-dev1.tfvars").read_text(encoding="utf-8")
     assert 'project = "lab5-gemini-dev1"' in text

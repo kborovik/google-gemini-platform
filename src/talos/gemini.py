@@ -20,6 +20,18 @@ def aiplatform_root(location: str) -> str:
     return f"https://{location}-aiplatform.googleapis.com/v1"
 
 
+# New projects are not allowlisted for RAG in these regions.
+# us-east5 is the nearest region that accepts a corpus create.
+_RAG_ALLOWLISTED_REGIONS = frozenset({"us-central1", "us-east1", "us-east4"})
+RAG_OPEN_LOCATION = "us-east5"
+
+
+def rag_location(workload_location: str) -> str:
+    if workload_location in _RAG_ALLOWLISTED_REGIONS:
+        return RAG_OPEN_LOCATION
+    return workload_location
+
+
 def model_publish_location(location: str) -> str:
     """gemini-3.8-flash is published on global and us/eu, not on a single region."""
     if location in {"global", "us", "eu"}:
@@ -69,14 +81,25 @@ def candidate_text(payload: dict[str, Any]) -> str:
     return "".join(chunks)
 
 
-def corpus_create_body(display_name: str, description: str) -> dict[str, Any]:
+def embedding_endpoint(project: str, location: str) -> str:
+    return (
+        f"projects/{project}/locations/{location}/{DEFAULT_EMBEDDING_PUBLISHER_MODEL}"
+    )
+
+
+def corpus_create_body(
+    display_name: str, description: str, *, project: str, location: str
+) -> dict[str, Any]:
     return {
         "displayName": display_name,
         "description": description,
-        "ragEmbeddingModelConfig": {
-            "vertexPredictionEndpoint": {
-                "publisherModel": DEFAULT_EMBEDDING_PUBLISHER_MODEL,
-            }
+        "vectorDbConfig": {
+            "ragManagedDb": {},
+            "ragEmbeddingModelConfig": {
+                "vertexPredictionEndpoint": {
+                    "endpoint": embedding_endpoint(project, location),
+                }
+            },
         },
     }
 
@@ -87,9 +110,13 @@ def import_body(
     return {
         "importRagFilesConfig": {
             "gcsSource": {"uris": uris},
-            "ragFileChunkingConfig": {
-                "chunkSize": chunk_size,
-                "chunkOverlap": chunk_overlap,
+            "ragFileTransformationConfig": {
+                "ragFileChunkingConfig": {
+                    "fixedLengthChunking": {
+                        "chunkSize": chunk_size,
+                        "chunkOverlap": chunk_overlap,
+                    }
+                }
             },
         }
     }

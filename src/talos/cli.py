@@ -361,6 +361,7 @@ def chat(
     """Ask the credit-policy agent. One-shot arguments, stdin, or a TTY REPL."""
     from talos.chat import ChatConfig, load_instructions, run_chat
     from talos.deploy import VertexRagOps
+    from talos.gemini import rag_location
     from talos.rest import RequestsRest
 
     def action() -> None:
@@ -392,7 +393,7 @@ def chat(
         corpus_name = corpus
         if not dry_run and "/ragCorpora/" not in corpus:
             found = VertexRagOps(
-                RequestsRest(), resolved_project, resolved_location
+                RequestsRest(), resolved_project, rag_location(resolved_location)
             ).find_corpus(corpus)
             if not found:
                 raise TalosError(

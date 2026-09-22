@@ -46,7 +46,7 @@ V13: wait-gate — `talos deploy --wait` requires local policy files ≥ 12 and 
 V14: application-generate — opaque `CA-{YYYYMMDD}-{unix_ms}`; intended outcome only in `manifest.json`; mixed product per type; validate + one retry; prompts do not inject disclaimer phrases
 V15: readme-hiring-manager — README.md is for a hiring manager: accurate, short, not an engineer runbook
 V16: tfvars — apply `-var-file=lab5-gemini-dev1.tfvars`; terraform variables are only `project` and `region`
-V17: generateContent — chat model per §V.7; workload location outside global, us, eu → publisher location global (host aiplatform.googleapis.com); location global or us or eu kept; RAG corpus URLs stay on workload location (§B.1)
+V17: generateContent — chat model per §V.7; workload location outside global, us, eu → publisher location global (host aiplatform.googleapis.com); location global or us or eu kept; RAG corpus URLs stay on workload location, except us-central1, us-east1, and us-east4 use us-east5 (§B.1, §B.2)
 
 ## §T TASKS
 
@@ -63,3 +63,4 @@ T7|x|sync chat model id to gemini-3.8-flash and publish generateContent on globa
 
 id|date|cause|fix
 B1|2026-09-22|generateContent used workload region; gemini-3.8-flash 404 off global, us, and eu|V17
+B2|2026-09-22|new projects not allowlisted for RAG in us-central1, us-east1, us-east4; corpus create uses us-east5|V17
