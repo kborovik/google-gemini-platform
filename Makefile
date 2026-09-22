@@ -46,7 +46,7 @@ default: help
 
 .PHONY: help test check generate deploy infra preflight e2e clean
 .PHONY: infra-create infra-plan infra-fmt infra-validate infra-show infra-status infra-destroy infra-init
-.PHONY: infra-backend-create infra-backend-show
+.PHONY: infra-backend-show
 .PHONY: release major minor patch
 .PHONY: _release-pre _release-bump _release-tag _release-gh
 
@@ -94,14 +94,6 @@ clean: ## Remove caches and bytecode
 	rm -f .release-notes $(call rwildcard,,*.pyc) $(call rwildcard,,.DS_Store)
 
 ##@ Infrastructure:
-infra-backend-create:
-	$(call need-gcloud)
-	$(call need-gcloud-auth)
-	$(call header,Checking tfstate bucket gs://$(TFSTATE_BUCKET))
-	gcloud storage buckets describe gs://$(TFSTATE_BUCKET) --project=$(PROJECT) >/dev/null \
-	  || { echo "state bucket gs://$(TFSTATE_BUCKET) is missing — it is created by gcp-lab5-org for $(PROJECT)" >&2; exit 1; }
-	echo "tfstate bucket gs://$(TFSTATE_BUCKET)"
-
 infra-backend-show:
 	$(call need-gcloud)
 	$(call need-gcloud-auth)
@@ -209,6 +201,5 @@ help:
 	$(info $(yellow)infra-create$(reset)         terraform apply in $(PROJECT))
 	$(info $(yellow)infra-plan$(reset)           terraform plan)
 	$(info $(yellow)infra-destroy$(reset)        terraform destroy workload stack)
-	$(info $(yellow)infra-backend-create$(reset) check org-factory state bucket)
 	$(info $(yellow)release$(reset)              gmake release major|minor|patch)
 	:

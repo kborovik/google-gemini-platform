@@ -17,4 +17,5 @@ def test_makefile_uses_org_factory_state_bucket() -> None:
     text = (repo_root() / "Makefile").read_text(encoding="utf-8")
     assert "PROJECT ?= lab5-gemini-dev1" in text
     assert "TFSTATE_BUCKET := terraform-$(PROJECT)" in text
+    assert "infra-backend-create" not in text
     assert "infra-backend-destroy" not in text
