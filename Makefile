@@ -102,7 +102,7 @@ endif
 --wait:
 	@:
 
-index: .venv ## Ensure the Agent Search data store and import both prefixes
+index: .venv ## Import both prefixes into data store kb-credit-policies
 	$(call header,Indexing Agent Search data store)
 	$(UV) run docgen index $(if $(wait),--wait,)
 
@@ -282,7 +282,7 @@ help:
 	$(info $(yellow)check$(reset)               ruff + unit tests)
 	$(info $(yellow)generate$(reset)            sample applications, local only)
 	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait, adk deploy)
-	$(info $(yellow)index$(reset)               ensure data store kb-credit-policies and import)
+	$(info $(yellow)index$(reset)               import both prefixes into kb-credit-policies)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
 	$(info $(yellow)e2e$(reset)                 check, apply, generate, upload, index, live pytest)
 	$(info $(yellow)terraform$(reset)           plan, confirm, then apply)

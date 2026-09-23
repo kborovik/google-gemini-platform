@@ -26,14 +26,42 @@ def test_terraform_has_no_rag_engine_tier() -> None:
     assert "discoveryengine.googleapis.com" in text
     assert "aiplatform.googleapis.com" in text
     assert "storage.googleapis.com" in text
-    assert (
-        "locations/global/collections/default_collection/dataStores/kb-credit-policies"
-        in text
-    )
+    assert 'resource "google_discovery_engine_data_store" "kb_credit_policies"' in text
     makefile = (repo_root() / "Makefile").read_text(encoding="utf-8")
     assert "infra-rag-destroy" not in makefile
     assert "$(UV) run docgen index" in makefile
     assert "python -m docgen.search_index" not in makefile
+
+
+def test_terraform_creates_empty_agent_search_data_store() -> None:
+    text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((repo_root() / "infra").glob("*.tf"))
+    )
+    match = re.search(
+        r'resource "google_discovery_engine_data_store" "kb_credit_policies" \{'
+        r"(?P<body>.*?)\n\}",
+        text,
+        re.S,
+    )
+    assert match is not None
+    body = match.group("body")
+    assert re.search(r'location\s+=\s+"global"', body)
+    assert re.search(r'data_store_id\s+=\s+"kb-credit-policies"', body)
+    assert re.search(r'display_name\s+=\s+"kb-credit-policies"', body)
+    assert re.search(r'industry_vertical\s+=\s+"GENERIC"', body)
+    assert re.search(r'content_config\s+=\s+"CONTENT_REQUIRED"', body)
+    assert re.search(r'solution_types\s+=\s+\["SOLUTION_TYPE_SEARCH"\]', body)
+    assert re.search(r"project\s+=\s+var\.project", body)
+    assert "us-east1" not in body
+    assert "us-east5" not in body
+    assert "import" not in body
+    assert "google_discovery_engine_document" not in text
+    assert re.search(
+        r'output "DATA_STORE" \{\s*'
+        r"value = google_discovery_engine_data_store\.kb_credit_policies\.name",
+        text,
+    )
 
 
 def test_terraform_variables_are_only_project_and_region() -> None:

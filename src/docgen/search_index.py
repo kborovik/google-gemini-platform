@@ -48,10 +48,6 @@ class SystemClock:
 
 
 class SearchOps(Protocol):
-    def find_data_store(self, data_store_id: str) -> str | None: ...
-
-    def create_data_store(self, data_store_id: str) -> str: ...
-
     def import_uris(self, data_store_id: str, uris: list[str]) -> str: ...
 
     def operation_done(self, name: str) -> tuple[bool, str | None]: ...
@@ -87,14 +83,6 @@ def data_store_url(project: str, data_store_id: str) -> str:
     return f"{discoveryengine_root()}/{data_store_resource(project, data_store_id)}"
 
 
-def data_store_create_url(project: str, data_store_id: str) -> str:
-    parent = (
-        f"{discoveryengine_root()}/projects/{project}/locations/{DATA_STORE_LOCATION}"
-        f"/collections/{_COLLECTION}/dataStores"
-    )
-    return f"{parent}?{urlencode({'dataStoreId': data_store_id})}"
-
-
 def import_url(project: str, data_store_id: str) -> str:
     return (
         f"{data_store_url(project, data_store_id)}/branches/{_BRANCH}/documents:import"
@@ -121,15 +109,6 @@ def gcs_markdown_glob(bucket: str, prefix: str) -> str:
     return f"gs://{bucket}/{prefix.strip('/')}/*.md"
 
 
-def data_store_body(display_name: str) -> dict[str, Any]:
-    return {
-        "displayName": display_name,
-        "industryVertical": "GENERIC",
-        "contentConfig": "CONTENT_REQUIRED",
-        "solutionTypes": ["SOLUTION_TYPE_SEARCH"],
-    }
-
-
 def import_documents_body(uris: list[str]) -> dict[str, Any]:
     return {
         "gcsSource": {
@@ -154,41 +133,6 @@ class VertexSearchOps:
     def __init__(self, rest: RestClient, project: str) -> None:
         self._rest = rest
         self._project = project
-
-    def find_data_store(self, data_store_id: str) -> str | None:
-        response = self._rest.request(
-            "GET",
-            data_store_url(self._project, data_store_id),
-            timeout=60.0,
-        )
-        if response.status_code == 404:
-            return None
-        raise_for_status(response, "get Agent Search data store")
-        payload = response.json if isinstance(response.json, dict) else {}
-        name = payload.get("name")
-        if isinstance(name, str) and name:
-            return name
-        return data_store_resource(self._project, data_store_id)
-
-    def create_data_store(self, data_store_id: str) -> str:
-        response = self._rest.request(
-            "POST",
-            data_store_create_url(self._project, data_store_id),
-            json_body=data_store_body(data_store_id),
-            timeout=60.0,
-        )
-        raise_for_status(response, "create Agent Search data store")
-        payload = response.json if isinstance(response.json, dict) else {}
-        name = payload.get("name")
-        if isinstance(name, str) and "/operations/" in name:
-            error = _operation_error(payload)
-            if error:
-                raise TalosError(
-                    f"create Agent Search data store failed: {error}", exit_code=1
-                )
-            if not payload.get("done"):
-                self._wait_operation(name)
-        return data_store_resource(self._project, data_store_id)
 
     def import_uris(self, data_store_id: str, uris: list[str]) -> str:
         response = self._rest.request(
@@ -236,26 +180,6 @@ class VertexSearchOps:
             if not page_token:
                 return uris
 
-    def _wait_operation(self, name: str) -> None:
-        import time
-
-        deadline = time.monotonic() + WAIT_TIMEOUT_SECONDS
-        while True:
-            done, error = self.operation_done(name)
-            if error:
-                raise TalosError(
-                    f"create Agent Search data store failed: {error}", exit_code=1
-                )
-            if done:
-                return
-            if time.monotonic() >= deadline:
-                raise TalosError(
-                    "create Agent Search data store timed out after "
-                    f"{WAIT_TIMEOUT_SECONDS}s",
-                    exit_code=1,
-                )
-            time.sleep(POLL_INTERVAL_SECONDS)
-
 
 def run_index(
     config: IndexConfig,
@@ -278,18 +202,11 @@ def run_index(
     if config.wait:
         local_applications = _assert_local_wait_ready(policy_dir, application_dir)
     if config.dry_run:
-        echo(f"dry-run: would ensure Agent Search data store {store}")
-        echo(f"dry-run: would import {', '.join(uris)}")
+        echo(f"dry-run: would import {', '.join(uris)} into {store}")
         return
 
     search = ops or _default_ops(config)
-    found = search.find_data_store(config.data_store_id)
-    if found is None:
-        echo(f"creating Agent Search data store {config.data_store_id}")
-        found = search.create_data_store(config.data_store_id)
-    else:
-        echo(f"Agent Search data store {config.data_store_id} exists ({found})")
-    echo(f"importing {', '.join(uris)}")
+    echo(f"importing {', '.join(uris)} into {store}")
     operation = search.import_uris(config.data_store_id, uris)
     if not config.wait:
         echo(f"import operation {operation}")

@@ -19,5 +19,5 @@ output "GOOGLE_AGENT_SERVICE_ACCOUNT" {
 }
 
 output "DATA_STORE" {
-  value = "projects/${var.project}/locations/global/collections/default_collection/dataStores/kb-credit-policies"
+  value = google_discovery_engine_data_store.kb_credit_policies.name
 }

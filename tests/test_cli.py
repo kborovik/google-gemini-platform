@@ -60,9 +60,13 @@ def test_index_dry_run_does_not_call_discovery_engine(
     monkeypatch.setattr("docgen.search_index.VertexSearchOps", _refuse_discovery)
     result = CliRunner().invoke(cli, ["index", "--dry-run", "--no-terraform"])
     assert result.exit_code == 0, result.output
+    lowered = result.output.lower()
     assert "kb-credit-policies" in result.output
     assert "credit-policies" in result.output
     assert "client-applications" in result.output
+    assert "would import" in lowered
+    assert "creat" not in lowered
+    assert "ensure" not in lowered
 
 
 def test_index_missing_env_exits_2(clean_gcp_env: None) -> None:

@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 
 from docgen.constants import MIN_APPLICATION_INDEXED_ITEMS, MIN_INDEXED_ITEMS
+from docgen.env import repo_root
 from docgen.errors import TalosError
 from docgen.search_index import (
     DATA_STORE_LOCATION,
     IndexConfig,
-    data_store_body,
     data_store_resource,
     gcs_markdown_glob,
     import_documents_body,
@@ -38,18 +38,8 @@ class FakeClock:
 class FakeSearch:
     def __init__(self) -> None:
         self.calls: list[tuple[object, ...]] = []
-        self.store: str | None = None
         self.done: list[tuple[bool, str | None]] = []
         self.uris: list[str] = []
-
-    def find_data_store(self, data_store_id: str) -> str | None:
-        self.calls.append(("find", data_store_id))
-        return self.store
-
-    def create_data_store(self, data_store_id: str) -> str:
-        self.calls.append(("create", data_store_id))
-        self.store = data_store_resource("lab5-gemini-dev1", data_store_id)
-        return self.store
 
     def import_uris(self, data_store_id: str, uris: list[str]) -> str:
         self.calls.append(("import", data_store_id, tuple(uris)))
@@ -104,18 +94,29 @@ def test_data_store_is_global_for_the_workload_project() -> None:
     )
     assert "us-east1" not in resource
     assert "us-east5" not in resource
-    body = data_store_body("kb-credit-policies")
-    encoded = json.dumps(body)
-    assert "text-embedding" not in encoded
-    assert "us-east5" not in encoded
-    assert body["solutionTypes"] == ["SOLUTION_TYPE_SEARCH"]
     assert "locations/global/" in import_url("lab5-gemini-dev1", "kb-credit-policies")
+
+
+def test_index_does_not_create_the_data_store(tmp_path: Path) -> None:
+    source = (repo_root() / "src/docgen/search_index.py").read_text(encoding="utf-8")
+    assert "create_data_store" not in source
+    assert "dataStores?" not in source
+    assert "documents:import" in source
+    search = FakeSearch()
+    lines: list[str] = []
+    run_index(_config(tmp_path, dry_run=True), ops=search, echo=lines.append)
+    assert search.calls == []
+    text = "\n".join(lines).lower()
+    assert "would import" in text
+    assert "kb-credit-policies" in text
+    assert "creat" not in text
+    assert "ensure" not in text
 
 
 def test_import_sends_both_markdown_prefixes(tmp_path: Path) -> None:
     search = FakeSearch()
     run_index(_config(tmp_path), ops=search, echo=lambda _: None)
-    assert ("create", "kb-credit-policies") in search.calls
+    assert [call[0] for call in search.calls] == ["import"]
     imported = next(call for call in search.calls if call[0] == "import")
     assert imported[2] == (
         gcs_markdown_glob("lab5-gemini-dev1-credit-docs", "credit-policies"),

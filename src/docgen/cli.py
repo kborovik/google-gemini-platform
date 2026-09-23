@@ -325,7 +325,7 @@ def index(
     dry_run: bool,
     no_terraform: bool,
 ) -> None:
-    """Ensure data store kb-credit-policies and import both GCS prefixes."""
+    """Import both GCS prefixes into data store kb-credit-policies."""
     from docgen.search_index import index_config_from_env, run_index
 
     def action() -> None:
