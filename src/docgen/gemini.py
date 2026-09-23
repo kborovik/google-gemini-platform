@@ -33,6 +33,17 @@ def generate_content_url(project: str, location: str, model: str) -> str:
     )
 
 
+def retrieval_tool(data_store: str) -> dict[str, Any]:
+    """Ground generateContent on one Agent Search data store."""
+    return {
+        "retrieval": {
+            "vertexAiSearch": {
+                "datastore": data_store,
+            }
+        }
+    }
+
+
 def candidate_text(payload: dict[str, Any]) -> str:
     candidates = payload.get("candidates") or []
     if not isinstance(candidates, list) or not candidates:

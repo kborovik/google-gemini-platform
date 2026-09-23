@@ -6,12 +6,48 @@ from tests.live_support import (
     application_cases,
     assert_expected_decision,
     expected_decision_token,
+    flatten_retrieve_text,
     lead_decision_token,
     pick_application_case,
     print_agent_turn,
+    search_request,
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_search_request_asks_for_snippets_not_extractive_answers() -> None:
+    body = search_request("max LTV", top_k=5)
+    assert body["query"] == "max LTV"
+    assert body["pageSize"] == 5
+    assert body["contentSearchSpec"] == {"snippetSpec": {"returnSnippet": True}}
+    assert "extractiveContentSpec" not in body["contentSearchSpec"]
+
+
+def test_flatten_reads_search_snippets_and_link() -> None:
+    text = flatten_retrieve_text(
+        {
+            "results": [
+                {
+                    "document": {
+                        "derivedStructData": {
+                            "link": "gs://bucket/credit-policies/CP-RML.md",
+                            "title": "CP-RML-2026-01-residential-mortgage",
+                            "snippets": [
+                                {
+                                    "snippet": "Maximum <b>LTV</b> is 80%.",
+                                    "snippet_status": "SUCCESS",
+                                }
+                            ],
+                        }
+                    }
+                }
+            ]
+        }
+    )
+    assert "Maximum <b>LTV</b> is 80%." in text
+    assert "gs://bucket/credit-policies/CP-RML.md" in text
+    assert "CP-RML-2026-01-residential-mortgage" in text
 
 
 def test_print_agent_turn_labels_request_and_response(

@@ -24,11 +24,20 @@ def corpus_name(env: dict[str, str]) -> str:
     return data_store_resource(env["GOOGLE_CLOUD_PROJECT"], DEFAULT_CORPUS)
 
 
+def search_request(query: str, *, top_k: int) -> dict[str, Any]:
+    # Extractive answers are an Enterprise-edition feature and 400 on this store.
+    return {
+        "query": query,
+        "pageSize": top_k,
+        "contentSearchSpec": {"snippetSpec": {"returnSnippet": True}},
+    }
+
+
 def retrieve(env: dict[str, str], query: str, *, top_k: int = 5) -> dict[str, Any]:
     response = RequestsRest().request(
         "POST",
         search_url(env["GOOGLE_CLOUD_PROJECT"], DEFAULT_CORPUS),
-        json_body={"query": query, "pageSize": top_k},
+        json_body=search_request(query, top_k=top_k),
         timeout=120.0,
     )
     _raise_or_fail(response, "Agent Search")
@@ -65,6 +74,12 @@ def flatten_retrieve_text(body: dict[str, Any]) -> str:
             derived = document.get("derivedStructData")
             if not isinstance(derived, dict):
                 continue
+            link = derived.get("link")
+            if isinstance(link, str) and link:
+                chunks.append(link)
+            title = derived.get("title")
+            if isinstance(title, str) and title:
+                chunks.append(title)
             for answer in derived.get("extractive_answers") or []:
                 if isinstance(answer, dict) and isinstance(answer.get("content"), str):
                     chunks.append(answer["content"])

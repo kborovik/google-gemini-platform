@@ -10,6 +10,7 @@ from docgen.gemini import (
     aiplatform_root,
     generate_content_url,
     model_publish_location,
+    retrieval_tool,
 )
 from docgen.rest import RestResponse
 
@@ -135,6 +136,56 @@ def test_chat_and_application_post_on_global_for_a_regional_workload() -> None:
     assert rest.urls == [expected, expected]
     assert "/locations/global/" in expected
     assert expected.startswith("https://aiplatform.googleapis.com/v1/")
+
+
+def test_generate_grounds_on_the_agent_search_data_store() -> None:
+    from docgen.chat import ChatConfig, GeminiChatModel
+
+    store = (
+        "projects/lab5-gemini-dev1/locations/global/collections/"
+        "default_collection/dataStores/kb-credit-policies"
+    )
+
+    class RecordingRest:
+        def __init__(self) -> None:
+            self.body: object = None
+
+        def request(
+            self,
+            method: str,
+            url: str,
+            *,
+            json_body: object = None,
+            timeout: float = 60.0,
+        ) -> RestResponse:
+            del method, url, timeout
+            self.body = json_body
+            return RestResponse(
+                status_code=200,
+                json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]},
+                text="ok",
+            )
+
+    rest = RecordingRest()
+    chat = GeminiChatModel(
+        rest,
+        ChatConfig(
+            project="lab5-gemini-dev1",
+            location="us-east1",
+            corpus_name=store,
+        ),
+    )
+    assert (
+        chat.generate(
+            contents=[{"role": "user", "parts": [{"text": "q"}]}],
+            system="s",
+        )
+        == "ok"
+    )
+    assert isinstance(rest.body, dict)
+    assert rest.body["tools"] == [retrieval_tool(store)]
+    assert "vertexRagStore" not in str(rest.body)
+    assert "ragCorpora" not in str(rest.body)
 
 
 def test_generate_retries_resource_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
