@@ -160,7 +160,7 @@ ifneq ($(filter e2e,$(MAKECMDGOALS)),)
 $(if $(FILE),$(if $(e2e_target),,$(error no test file matches FILE=$(FILE))))
 endif
 
-e2e: check preflight generate ## check, generate, upload, index, agent judgement
+e2e: check preflight generate ## check, generate, upload, index, judge 5 random filings
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload
 	$(MAKE) index wait=1
@@ -327,7 +327,7 @@ help:
 	$(info $(yellow)chat-deploy$(reset)         build chat/, push the image, then apply)
 	$(info $(yellow)index$(reset)               import both prefixes into kb-credit-policies)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
-	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, agent judgement)
+	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, judge 5 random filings)
 	$(info $(yellow)terraform$(reset)           plan, confirm, then apply)
 	$(info $(yellow)terraform-plan$(reset)      plan in $(PROJECT))
 	$(info $(yellow)terraform-apply$(reset)     apply; write infra/outputs.json)

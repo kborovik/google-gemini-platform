@@ -7,6 +7,8 @@ from tests.live_support import (
     invoke_agent,
     load_judgement_cases,
     require_manifest_outcomes,
+    resolve_judgement_sample_seed,
+    sample_judgement_cases,
 )
 
 pytestmark = [pytest.mark.agent, pytest.mark.timeout(300)]
@@ -29,10 +31,19 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             ],
         )
         return
+    seed = resolve_judgement_sample_seed()
+    chosen = sample_judgement_cases(cases, seed=seed)
+    ids = [case["application_id"] for case in chosen]
+    if "agent" in (metafunc.config.option.markexpr or ""):
+        print(
+            f"\nAgent judgement sample {len(chosen)} of {len(cases)} "
+            f"seed={seed}: {', '.join(ids)}",
+            flush=True,
+        )
     metafunc.parametrize(
         "judgement_case",
-        cases,
-        ids=[case["application_id"] for case in cases],
+        chosen,
+        ids=ids,
     )
 
 

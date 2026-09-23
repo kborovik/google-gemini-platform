@@ -197,6 +197,42 @@ def pick_application_case(application_type: str | None = None) -> dict[str, Any]
     return random.Random(seed).choice(pool)
 
 
+# Live agent judgement calls one model turn per filing. A full manifest is
+# dozens of turns; each e2e run judges this many, chosen at random.
+JUDGEMENT_SAMPLE_SIZE = 5
+
+
+def resolve_judgement_sample_seed() -> int:
+    """Seed for the e2e filing sample.
+
+    `E2E_APPLICATION_SEED` reproduces a run. Unset draws a fresh seed.
+    """
+    raw = os.environ.get("E2E_APPLICATION_SEED")
+    if raw is None or not raw.strip():
+        return random.SystemRandom().randrange(1 << 31)
+    try:
+        return int(raw)
+    except ValueError:
+        return 0
+
+
+def sample_judgement_cases(
+    cases: list[dict[str, str]],
+    *,
+    size: int = JUDGEMENT_SAMPLE_SIZE,
+    seed: int | None = None,
+) -> list[dict[str, str]]:
+    """Up to `size` filings. A shorter manifest is returned whole."""
+    if size < 1:
+        raise ValueError("size must be >= 1")
+    if len(cases) <= size:
+        return list(cases)
+    rng = random.Random() if seed is None else random.Random(seed)
+    picked = rng.sample(cases, size)
+    picked.sort(key=lambda item: item["application_id"])
+    return picked
+
+
 def load_judgement_cases(root: Path | None = None) -> list[dict[str, str]]:
     """Labeled filings in data/client-applications/manifest.json."""
     manifest_path = (

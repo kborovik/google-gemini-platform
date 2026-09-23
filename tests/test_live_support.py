@@ -14,6 +14,8 @@ from tests.live_support import (
     lead_decision_token,
     load_judgement_cases,
     pick_application_case,
+    resolve_judgement_sample_seed,
+    sample_judgement_cases,
     print_agent_turn,
     search_request,
 )
@@ -161,6 +163,66 @@ def test_load_judgement_cases_reads_manifest_outcomes(tmp_path: Path) -> None:
 
 def test_load_judgement_cases_missing_manifest(tmp_path: Path) -> None:
     assert load_judgement_cases(tmp_path) == []
+
+
+def _labelled_cases(count: int) -> list[dict[str, str]]:
+    return [
+        {
+            "application_id": f"CA-{index:04d}",
+            "intended_outcome": "accepted",
+            "expected_outcome": "accepted",
+        }
+        for index in range(count)
+    ]
+
+
+def test_sample_judgement_cases_draws_five_and_keeps_the_seed() -> None:
+    cases = _labelled_cases(12)
+    order = [item["application_id"] for item in cases]
+    first = sample_judgement_cases(cases, seed=0)
+    assert sample_judgement_cases(cases, seed=0) == first
+    assert len(first) == 5
+    assert len({item["application_id"] for item in first}) == 5
+    assert {item["application_id"] for item in first} < set(order)
+    assert [item["application_id"] for item in first] == sorted(
+        item["application_id"] for item in first
+    )
+    assert [item["application_id"] for item in cases] == order
+    assert {
+        item["application_id"] for item in sample_judgement_cases(cases, seed=1)
+    } != {item["application_id"] for item in first}
+
+
+def test_sample_judgement_cases_keeps_a_short_manifest() -> None:
+    cases = _labelled_cases(3)
+    chosen = sample_judgement_cases(cases, seed=4)
+    assert chosen == cases
+    assert chosen is not cases
+
+
+def test_resolve_judgement_sample_seed_reads_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("E2E_APPLICATION_SEED", "17")
+    assert resolve_judgement_sample_seed() == 17
+    monkeypatch.setenv("E2E_APPLICATION_SEED", "nope")
+    assert resolve_judgement_sample_seed() == 0
+
+
+def test_resolve_judgement_sample_seed_draws_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("E2E_APPLICATION_SEED", raising=False)
+
+    class Fixed:
+        def randrange(self, stop: int) -> int:
+            assert stop == 1 << 31
+            return 42
+
+    monkeypatch.setattr("tests.live_support.random.SystemRandom", lambda: Fixed())
+    assert resolve_judgement_sample_seed() == 42
+    monkeypatch.setenv("E2E_APPLICATION_SEED", "  ")
+    assert resolve_judgement_sample_seed() == 42
 
 
 def test_assert_manifest_judgement_compares_received_decision() -> None:
