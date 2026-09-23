@@ -13,7 +13,8 @@ _RAG_WORD = re.compile(r"\brag\b", re.IGNORECASE)
 
 def test_readme_is_hiring_manager_not_runbook() -> None:
     text = (repo_root() / "README.md").read_text(encoding="utf-8")
-    assert len(text.splitlines()) <= 90
+    assert len(text.splitlines()) <= 105
+    assert "sequenceDiagram" in text
     lowered = text.lower()
     assert "talos" not in lowered
     assert _RAG_WORD.search(text) is None
