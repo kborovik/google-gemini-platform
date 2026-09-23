@@ -47,7 +47,7 @@ markers = [
     "ingestion: live Cloud Storage + Agent Search indexed counts",
     "retrieval: live Agent Search retrieve",
     "agent: live Gemini generateContent",
-    "teams: reserved; Google Chat is not part of v1",
+    "teams: Google Chat live path",
 ]
 testpaths = ["tests"]
 timeout = 180

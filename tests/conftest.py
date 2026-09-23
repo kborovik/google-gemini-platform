@@ -64,11 +64,6 @@ def clean_azure_env(clean_gcp_env: None) -> None:
     return clean_gcp_env
 
 
-def pytest_runtest_setup(item: pytest.Item) -> None:
-    if item.get_closest_marker("teams"):
-        pytest.skip("Google Chat is not part of v1")
-
-
 @pytest.fixture(scope="session")
 def live_env() -> dict[str, str]:
     from talos.env import missing_required, resolve_env
