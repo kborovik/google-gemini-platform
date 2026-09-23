@@ -23,11 +23,11 @@ Demo: credit officer in Google Chat asks an ADK Python agent on Agent Runtime. R
 ## §I INTERFACES
 
 - cmd: `uv run docgen generate` Click group; bare → help exit 2. `generate policy` renders facts+templates, writes `data/credit-policies/`, optional GCS upload; `--local-only` / `--gcs-only` mutex; `--dry-run` / `--force` / `--fail-if-missing-gcs` / `--no-terraform`. `generate application` calls Gemini JSON mode; `--type` or `--all`; `--count`; `--force --application-id`; `--local-only`; `--dry-run` prints serials and does not call the model. `docgen upload` hash-skips both prefixes to the bucket and does not import them. No `docgen deploy`. No `docgen chat`. `adk run` and `adk web` are local dev only. `adk deploy agent_engine --project --region --display_name` deploys the ADK package to Agent Runtime. `docgen --completion bash|zsh|fish|powershell` prints Click source. Missing required env → exit 2.
-- index: `gmake index` ensures Agent Search data store `kb-credit-policies`, imports both GCS URIs, `--wait` polls indexed counts to the floors. Not a `docgen` subcommand.
+- index: `gmake index` ensures Agent Search data store `kb-credit-policies`, imports both GCS URIs. `gmake index wait=1` polls indexed counts to the floors. Not a `docgen` subcommand.
 - env: `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GCS_BUCKET`, `GCS_URI`, `DATA_STORE`, `REASONING_ENGINE`. Flags > process env > `infra/outputs.json` (unwrap `.value`). No `.env` load.
 - names: project `lab5-gemini-dev1`; region `us-east1`; bucket `lab5-gemini-dev1-credit-docs`; tfstate bucket `terraform-lab5-gemini-dev1` prefix `google-gemini-platform`; data store display name `kb-credit-policies`; data store location `global`; Agent Runtime region `us-east1`; prefixes `credit-policies` and `client-applications`; model `gemini-3.8-flash`
 - file: `corpus/facts.yaml`; `corpus/templates/*.md.j2`; committed `data/credit-policies/*.md` + `manifest.json`; gitignored `data/client-applications/*.md` + `manifest.json`; `agents/credit_officer/credit-policy-agent.instructions.md`; `agents/credit_officer/` (`root_agent`); `tests/fixtures/golden_queries.yaml` (18 ids); `tests/fixtures/client-applications/`
-- infra: `infra/*.tf`; `infra/lab5-gemini-dev1.tfvars`; variable blocks = `project`, `region` only; GCS backend on the org-factory bucket; `infra-init` checks that bucket; `gmake infra-create` apply then `terraform output -json` → `infra/outputs.json`; `infra-destroy` does not delete the state bucket; APIs `aiplatform.googleapis.com` and `discoveryengine.googleapis.com`; no RAG Engine tier
+- infra: `infra/*.tf`; `infra/lab5-gemini-dev1.tfvars`; variable blocks = `project`, `region` only; GCS backend on the org-factory bucket; `infra-init` checks that bucket; `gmake infra-create` apply then `terraform output -json` → `infra/outputs.json`; `infra-destroy` does not delete the state bucket; APIs `aiplatform.googleapis.com`, `discoveryengine.googleapis.com`, and `storage.googleapis.com`; no RAG Engine tier
 - pytest: markers `unit` `ingestion` `retrieval` `agent` `teams`; `addopts = "-m unit"`; `teams` = Google Chat live path, not hard-skipped
 - chat: Google Chat `MESSAGE` → HTTPS handler → `reasoningEngines/{id}:streamQuery` `class_method` `async_stream_query`; `user_id` = Chat user; `session_id` = space + thread; handler posts model text in that thread
 
@@ -45,7 +45,7 @@ V9: docgen-cli — one Click package `docgen`; subcommands generate and upload o
 V10: deploy-split — bucket, APIs, and service account via Terraform; object upload via `docgen`; data store ensure + import via `gmake index`; no RAG Engine tier
 V11: env-contract — flags override process env; missing keys from `infra/outputs.json` unless `--no-terraform`; never spawn `terraform output` at runtime; never load `.env`
 V12: secrets — Application Default Credentials; never commit keys
-V13: wait-gate — `gmake index --wait` requires local policy files ≥ 12 and local application files ≥ 3, then Agent Search indexed counts at the same floors (application floor = max(3, local size))
+V13: wait-gate — `gmake index wait=1` requires local policy files ≥ 12 and local application files ≥ 3, then Agent Search indexed counts at the same floors (application floor = max(3, local size))
 V14: application-generate — opaque `CA-{YYYYMMDD}-{unix_ms}`; intended outcome only in `manifest.json`; mixed product per type; validate + one retry; prompts do not inject disclaimer phrases
 V15: readme-hiring-manager — README.md is for a hiring manager: accurate, short, not an engineer runbook
 V16: tfvars — apply `-var-file=lab5-gemini-dev1.tfvars`; terraform variables are only `project` and `region`
@@ -66,6 +66,7 @@ T9|x|swap terraform off RAG Engine; gmake index ensures one Agent Search data st
 T10|.|add Google Chat handler: MESSAGE → streamQuery; session = Chat user + thread; reply in thread|V4,I.chat
 T11|.|rename package and console script talos → docgen; docgen = generate + GCS upload only; drop deploy and chat|V6,V9,I.cmd
 T12|.|sync README and docs/demo.md to the Chat + Agent Search path|V15,I.file
+T13|.|drop text-embedding-005 from constants and tests; scope grep text-embedding-005|V7
 
 ## §B BUGS
 
