@@ -2,51 +2,53 @@
 
 ## §G GOAL
 
-Demo Gemini prompt (1) answers credit-policy questions from 12 Contoso Demo Bank Markdown policies in one RAG corpus w/ citations (2) evaluates local client applications (`accepted`|`rejected`|`missing-data`) in the terminal by `application_id` or `customer_name`, judgement grounded in named policy docs — not a production origination system. Same use case as kborovik/azure-ai-foundry. Document generation reused: facts.yaml + Jinja policies, Gemini JSON filings from the same application prompts.
+Demo: credit officer in Google Chat asks an ADK Python agent on Agent Runtime. RetrievalAgent searches one Agent Search data store (12 Contoso Demo Bank Markdown policies + client applications, ingested from GCS). InteractiveAgent answers with citations and evaluates applications (`accepted`|`rejected`|`missing-data`) by `application_id` or `customer_name`, judgement grounded in named policy docs. Not a production origination system. Same use case as kborovik/azure-ai-foundry. Document generation unchanged: facts.yaml + Jinja policies, Gemini JSON filings from the same application prompts.
 
 ## §C CONSTRAINTS
 
 - demo: no origination system-of-record; no real borrower PII; no real bank IP; no production credit decisioning
-- thin stack: Gemini generateContent + RAG Engine retrieval tool; terminal client; Google Chat = not v1
+- stack: Google ADK Python on Agent Runtime; officer client = Google Chat; one Agent Search data store; GCS = ingest only
 - Markdown-only corpus v1; no PDF
-- no multi-agent, no write-back to core banking
+- two ADK agents (`InteractiveAgent` + `RetrievalAgent`); no write-back to core banking
 - public Gemini API via Application Default Credentials; no API keys committed
-- one RAG corpus imports both prefixes; model synthesizes; no separate answer-synthesis service
+- one Agent Search data store imports both prefixes; InteractiveAgent synthesizes; no separate answer-synthesis service
 - CPython 3.14; `requires-python = ">=3.14"`; `[tool.uv] python-preference = "managed"`; no PEP 723 under `src/`
-- one CLI `talos` (generate, deploy, chat); unit via `gmake test` → `uv run pytest`
+- one CLI `talos` (generate, deploy); officer chat = Chat app, not a talos subcommand; local dev = `adk run` / `adk web`; unit via `gmake test` → `uv run pytest`
 - workload project `lab5-gemini-dev1`; region `us-east1`; state bucket `terraform-lab5-gemini-dev1` owned by gcp-lab5-org
-- chat model `gemini-3.8-flash`; embedding `text-embedding-005`
+- chat model `gemini-3.8-flash`; document embeddings owned by Agent Search
 - no Application Integration / Dialogflow in v1 Terraform
 - default CI = unit corpus/CLI tests; live Google Cloud behind pytest markers
+- Chat handler holds no policy text; session key = Chat user + thread
 
 ## §I INTERFACES
 
-- cmd: `uv run talos generate` Click group; bare → help exit 2. `generate policy` renders facts+templates, writes `data/credit-policies/`, optional GCS upload; `--local-only` / `--gcs-only` mutex; `--dry-run` / `--force` / `--fail-if-missing-gcs` / `--no-terraform`. `generate application` calls Gemini JSON mode; `--type` or `--all`; `--count`; `--force --application-id`; `--local-only`; `--dry-run` prints serials and does not call the model. `talos deploy` syncs both prefixes (hash-skip), ensures RAG corpus `kb-credit-policies`, imports both URIs, `--wait` polls the import and file counts. `talos chat` one-shot, stdin, or TTY REPL. `talos --completion bash|zsh|fish|powershell` prints Click source. Missing required env → exit 2.
-- env: `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GCS_BUCKET`, `GCS_URI`. Flags > process env > `infra/outputs.json` (unwrap `.value`). No `.env` load.
-- names: project `lab5-gemini-dev1`; region `us-east1`; bucket `lab5-gemini-dev1-credit-docs`; tfstate bucket `terraform-lab5-gemini-dev1` prefix `google-gemini-platform`; corpus display name `kb-credit-policies`; prefixes `credit-policies` and `client-applications`; model `gemini-3.8-flash`; embedding `text-embedding-005`
-- file: `corpus/facts.yaml`; `corpus/templates/*.md.j2`; committed `data/credit-policies/*.md` + `manifest.json`; gitignored `data/client-applications/*.md` + `manifest.json`; `agents/credit-policy-agent.instructions.md`; `tests/fixtures/golden_queries.yaml` (18 ids); `tests/fixtures/client-applications/`
-- infra: `infra/*.tf`; `infra/lab5-gemini-dev1.tfvars`; variable blocks = `project`, `region` only; GCS backend on the org-factory bucket; `infra-init` checks that bucket; `gmake infra-create` apply then `terraform output -json` → `infra/outputs.json`; `infra-destroy` does not delete the state bucket
-- pytest: markers `unit` `ingestion` `retrieval` `agent` `teams`; `addopts = "-m unit"`; `teams` always skipped (Google Chat not v1)
+- cmd: `uv run talos generate` Click group; bare → help exit 2. `generate policy` renders facts+templates, writes `data/credit-policies/`, optional GCS upload; `--local-only` / `--gcs-only` mutex; `--dry-run` / `--force` / `--fail-if-missing-gcs` / `--no-terraform`. `generate application` calls Gemini JSON mode; `--type` or `--all`; `--count`; `--force --application-id`; `--local-only`; `--dry-run` prints serials and does not call the model. `talos deploy` syncs both prefixes (hash-skip), ensures one Agent Search data store `kb-credit-policies`, imports both GCS URIs, `--wait` polls import until indexed counts meet the floors. No `talos chat`. `adk run` and `adk web` are local dev only. `adk deploy agent_engine --project --region --display_name` deploys the ADK package to Agent Runtime. `talos --completion bash|zsh|fish|powershell` prints Click source. Missing required env → exit 2.
+- env: `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GCS_BUCKET`, `GCS_URI`, `DATA_STORE`, `REASONING_ENGINE`. Flags > process env > `infra/outputs.json` (unwrap `.value`). No `.env` load.
+- names: project `lab5-gemini-dev1`; region `us-east1`; bucket `lab5-gemini-dev1-credit-docs`; tfstate bucket `terraform-lab5-gemini-dev1` prefix `google-gemini-platform`; data store display name `kb-credit-policies`; data store location `global`; Agent Runtime region `us-east1`; prefixes `credit-policies` and `client-applications`; model `gemini-3.8-flash`
+- file: `corpus/facts.yaml`; `corpus/templates/*.md.j2`; committed `data/credit-policies/*.md` + `manifest.json`; gitignored `data/client-applications/*.md` + `manifest.json`; `agents/credit-policy-agent.instructions.md`; `agents/credit_officer/` (`root_agent`); `tests/fixtures/golden_queries.yaml` (18 ids); `tests/fixtures/client-applications/`
+- infra: `infra/*.tf`; `infra/lab5-gemini-dev1.tfvars`; variable blocks = `project`, `region` only; GCS backend on the org-factory bucket; `infra-init` checks that bucket; `gmake infra-create` apply then `terraform output -json` → `infra/outputs.json`; `infra-destroy` does not delete the state bucket; APIs `aiplatform.googleapis.com` and `discoveryengine.googleapis.com`; no RAG Engine tier
+- pytest: markers `unit` `ingestion` `retrieval` `agent` `teams`; `addopts = "-m unit"`; `teams` = Google Chat live path, not hard-skipped
+- chat: Google Chat `MESSAGE` → HTTPS handler → `reasoningEngines/{id}:streamQuery` `class_method` `async_stream_query`; `user_id` = Chat user; `session_id` = space + thread; handler posts model text in that thread
 
 ## §V INVARIANTS
 
-V1: grounded-only — factual claims come from RAG retrieval; thresholds from policy hits; application facts from application hits after id or name match; never infer outcome from `application_id`, filename, or `source_name`; empty policy retrieve → exact `That is not in the published policies.`
+V1: grounded-only — factual claims come from Agent Search retrieval; thresholds from policy hits; application facts from application hits after id or name match; never infer outcome from `application_id`, filename, or `source_name`; empty policy retrieve → exact `That is not in the published policies.`
 V2: policy-docs — policy MD opens `> Policy ID:`; no synthetic watermark; application MD opens `# Credit application {application_id}`; no disclaimer phrases; no YAML frontmatter
 V3: citation — every factual claim cites a retrieved filename (`source_name`) or `gs://` URI; an application citation is not the sole source of a policy threshold
-V4: stack-thin — v1 = Gemini + one RAG corpus + terminal client; no Google Chat host; no second corpus
+V4: stack — officer client = Google Chat; thin handler calls Agent Runtime; ADK Python `InteractiveAgent` holds credit-officer instructions and calls `RetrievalAgent` via `AgentTool`; `RetrievalAgent` tools = `VertexAiSearchTool` only, one Agent Search data store over both prefixes; session key = Chat user + thread; question path reads Agent Search only
 V5: corpus-shape — 12 policy Markdown files from `corpus/facts.yaml`; each fact value appears verbatim; applications are gitignored and append-only; fixtures live under `tests/fixtures/client-applications/`
 V6: hash-skip — object overwrite skip via metadata `content_sha256` lowercase hex SHA-256 of the UTF-8 bytes
-V7: models — chat `gemini-3.8-flash`; embedding `text-embedding-005` (`publishers/google/models/text-embedding-005`)
-V8: region — workload project `lab5-gemini-dev1` in `us-east1`
-V9: talos-cli — one Click package `talos`; missing required env → exit 2; bare `talos generate` → help exit 2; generate does not deploy
-V10: deploy-split — bucket, APIs, RAG Engine tier, and service account via Terraform; object sync + corpus create + import via `talos deploy`
+V7: models — chat `gemini-3.8-flash`; Agent Search owns document embeddings; this repo does not set `text-embedding-005`
+V8: region — workload project `lab5-gemini-dev1`; bucket and Agent Runtime in `us-east1`; Agent Search data store location `global`
+V9: talos-cli — one Click package `talos` with generate and deploy; no chat subcommand; missing required env → exit 2; bare `talos generate` → help exit 2; generate does not deploy
+V10: deploy-split — bucket, APIs, and service account via Terraform; object sync + data store ensure + import via `talos deploy`; no RAG Engine tier
 V11: env-contract — flags override process env; missing keys from `infra/outputs.json` unless `--no-terraform`; never spawn `terraform output` at runtime; never load `.env`
 V12: secrets — Application Default Credentials; never commit keys
-V13: wait-gate — `talos deploy --wait` requires local policy files ≥ 12 and local application files ≥ 3, then indexed counts at the same floors (application floor = max(3, local size))
+V13: wait-gate — `talos deploy --wait` requires local policy files ≥ 12 and local application files ≥ 3, then Agent Search indexed counts at the same floors (application floor = max(3, local size))
 V14: application-generate — opaque `CA-{YYYYMMDD}-{unix_ms}`; intended outcome only in `manifest.json`; mixed product per type; validate + one retry; prompts do not inject disclaimer phrases
 V15: readme-hiring-manager — README.md is for a hiring manager: accurate, short, not an engineer runbook
 V16: tfvars — apply `-var-file=lab5-gemini-dev1.tfvars`; terraform variables are only `project` and `region`
-V17: generateContent — chat model per §V.7; workload location outside global, us, eu → publisher location global (host aiplatform.googleapis.com); location global or us or eu kept; RAG corpus URLs stay on workload location, except us-central1, us-east1, and us-east4 use us-east5 (§B.1, §B.2)
+V17: model-host — chat model per §V.7 runs inside Agent Runtime; this repo does not call generateContent on the workload-region host; no RAG corpus; no us-east5 remap
 
 ## §T TASKS
 
@@ -58,6 +60,11 @@ T4|x|terraform GCS bucket + RAG Engine tier + agent service account; canonical o
 T5|x|talos deploy hash-skip upload + RAG import + --wait|V6,V10,V13,I.cmd
 T6|x|talos chat grounded generateContent + REPL|V1,V3,V4,I.cmd
 T7|x|sync chat model id to gemini-3.8-flash and publish generateContent on global for a single-region workload|V7,V17,I.cmd
+T8|.|add ADK package InteractiveAgent + RetrievalAgent; RetrievalAgent tool = VertexAiSearchTool only; InteractiveAgent calls it via AgentTool; load credit-officer instructions|V1,V3,V4,V7,I.cmd
+T9|.|swap terraform + talos deploy off RAG Engine onto one Agent Search data store; import both GCS prefixes; --wait uses indexed counts|V6,V8,V10,V13,V16,I.infra
+T10|.|add Google Chat handler: MESSAGE → streamQuery; session = Chat user + thread; reply in thread|V4,I.chat
+T11|.|drop talos chat and the us-east5 RAG location remap from the live path|V9,V17,I.cmd
+T12|.|sync README and docs/demo.md to the Chat + Agent Search path|V15,I.file
 
 ## §B BUGS
 
