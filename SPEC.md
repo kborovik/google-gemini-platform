@@ -65,7 +65,7 @@ T8|x|add ADK package InteractiveAgent + RetrievalAgent; RetrievalAgent tool = Ve
 T9|x|swap terraform off RAG Engine; gmake index ensures one Agent Search data store and imports both GCS prefixes; --wait uses indexed counts|V8,V10,V13,V16,V17,I.infra,I.index
 T10|x|add Google Chat handler: MESSAGE → streamQuery; session = Chat user + thread; reply in thread|V4,I.chat
 T11|x|rename package and console script talos → docgen; docgen = generate + GCS upload only; drop deploy and chat|V6,V9,I.cmd
-T12|.|sync README and docs/demo.md to the Chat + Agent Search path|V15,I.file
+T12|x|sync README and docs/demo.md to the Chat + Agent Search path|V15,I.file
 T13|.|drop text-embedding-005 from constants and tests; scope grep text-embedding-005|V7
 
 ## §B BUGS
