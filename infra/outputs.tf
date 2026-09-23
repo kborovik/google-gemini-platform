@@ -25,3 +25,7 @@ output "DATA_STORE" {
 output "REASONING_ENGINE" {
   value = google_vertex_ai_reasoning_engine.credit_officer.name
 }
+
+output "CHAT_HOST" {
+  value = "chat.lab5.ca"
+}

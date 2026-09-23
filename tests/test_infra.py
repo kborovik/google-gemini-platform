@@ -199,7 +199,15 @@ def test_makefile_chat_serves_handler_on_public_https() -> None:
     assert match is not None
     body = match.group(1)
     assert "need-cloudflared" in body
-    assert "$(UV) run python -m docgen.google_chat" in body
+    assert "$(UV) run python chat/main.py" in body
+    assert "docgen.google_chat" not in body
+    assert "infra/outputs.json" in body
+    for key in (
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+        "REASONING_ENGINE",
+    ):
+        assert key in body
     assert "--host 127.0.0.1" in body
     assert "--port $(CHAT_PORT)" in body
     assert "cloudflared tunnel --no-autoupdate --url" in body
@@ -244,3 +252,100 @@ def test_makefile_terraform_recipes_follow_org_factory() -> None:
     assert "gcloud config set compute/region $(google_region)" in text
     assert "gcloud config set compute/zone $(google_zone)" in text
     assert "gcloud auth revoke --all" in text
+
+
+def _infra_text() -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((repo_root() / "infra").glob("*.tf"))
+    )
+
+
+def test_v8_cloud_run_chat_and_registry_use_workload_region() -> None:
+    text = _infra_text()
+    assert "run.googleapis.com" in text
+    assert "artifactregistry.googleapis.com" in text
+    assert "chat.googleapis.com" not in text
+    assert "us-east5" not in text
+    for kind in (
+        'resource "google_cloud_run_v2_service" "chat"',
+        'resource "google_artifact_registry_repository" "chat"',
+    ):
+        match = re.search(re.escape(kind) + r" \{(?P<body>.*?)\n\}", text, re.S)
+        assert match is not None, kind
+        body = match.group("body")
+        assert re.search(r"location\s+=\s+var\.region", body), kind
+        assert re.search(r"project\s+=\s+var\.project", body), kind
+
+
+def test_v16_chat_invoker_is_a_literal() -> None:
+    names = re.findall(
+        r'^variable "([^"]+)"',
+        (repo_root() / "infra/variables.tf").read_text(encoding="utf-8"),
+        re.M,
+    )
+    assert names == ["project", "region"]
+    iam = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
+    assert 'role     = "roles/run.invoker"' in iam
+    assert 'member   = "serviceAccount:chat@system.gserviceaccount.com"' in iam
+    assert "allUsers" not in _infra_text()
+
+
+def test_v18_chat_handler_host() -> None:
+    text = _infra_text()
+    service = re.search(
+        r'resource "google_cloud_run_v2_service" "chat" \{(?P<body>.*?)\n\}',
+        text,
+        re.S,
+    )
+    assert service is not None
+    body = service.group("body")
+    assert 'name                = "chat"' in body or re.search(
+        r'name\s+=\s+"chat"', body
+    )
+    assert 'ingress             = "INGRESS_TRAFFIC_ALL"' in body or re.search(
+        r'ingress\s+=\s+"INGRESS_TRAFFIC_ALL"', body
+    )
+    assert re.search(r'timeout\s+=\s+"300s"', body)
+    assert re.search(
+        r"service_account\s+=\s+google_service_account\.agent\.email", body
+    )
+    assert "${var.region}-docker.pkg.dev/${var.project}/chat/handler" in body
+    assert 'command = ["python", "main.py"]' in body
+    mapping = re.search(
+        r'resource "google_cloud_run_domain_mapping" "chat" \{(?P<body>.*?)\n\}',
+        text,
+        re.S,
+    )
+    assert mapping is not None
+    mapped = mapping.group("body")
+    assert re.search(r'name\s+=\s+"chat\.lab5\.ca"', mapped)
+    assert re.search(r"location\s+=\s+var\.region", mapped)
+    assert re.search(
+        r"route_name\s+=\s+google_cloud_run_v2_service\.chat\.name", mapped
+    )
+    assert re.search(r'output "CHAT_HOST" \{\s*value = "chat\.lab5\.ca"', text)
+    for banned in (
+        "google_compute_global_address",
+        "google_compute_global_forwarding_rule",
+        "google_compute_url_map",
+        "google_compute_target_https_proxy",
+        "kronos",
+        'provider "cloudflare"',
+        "allUsers",
+    ):
+        assert banned not in text, banned
+    makefile = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    deploy = re.search(r"^chat-deploy:[^\n]*\n((?:[ \t].*\n)*)", makefile, re.M)
+    assert deploy is not None
+    recipe = deploy.group(1)
+    build_at = recipe.index(
+        "docker build -t $(REGION)-docker.pkg.dev/$(PROJECT)/chat/handler chat"
+    )
+    push_at = recipe.index(
+        "docker push $(REGION)-docker.pkg.dev/$(PROJECT)/chat/handler"
+    )
+    apply_at = recipe.index("$(MAKE) terraform-apply")
+    assert build_at < push_at < apply_at
+    assert "docgen" not in recipe
+    assert "adk deploy" not in recipe

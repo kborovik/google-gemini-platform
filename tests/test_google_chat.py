@@ -1,28 +1,41 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
 import threading
 import urllib.request
-from pathlib import Path
 
 import pytest
 
-from docgen.env import repo_root, resolve_env
-from docgen.errors import TalosError
-from docgen.google_chat import (
-    CLASS_METHOD,
-    STREAM_QUERY_TIMEOUT,
-    ChatHandlerConfig,
-    RestAgentRuntime,
-    config_from_env,
-    handle_chat_event,
-    http_reply,
-    model_text,
-    serve,
-    session_id,
-    stream_query_url,
-)
-from docgen.rest import RestResponse
+from docgen.env import repo_root
+
+
+def _load_chat():
+    path = repo_root() / "chat" / "main.py"
+    spec = importlib.util.spec_from_file_location("chat_main", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["chat_main"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+chat_main = _load_chat()
+CLASS_METHOD = chat_main.CLASS_METHOD
+STREAM_QUERY_TIMEOUT = chat_main.STREAM_QUERY_TIMEOUT
+ChatHandlerConfig = chat_main.ChatHandlerConfig
+HandlerError = chat_main.HandlerError
+RestAgentRuntime = chat_main.RestAgentRuntime
+RestResponse = chat_main.RestResponse
+bind_address = chat_main.bind_address
+config_from_env = chat_main.config_from_env
+handle_chat_event = chat_main.handle_chat_event
+http_reply = chat_main.http_reply
+model_text = chat_main.model_text
+serve = chat_main.serve
+session_id = chat_main.session_id
+stream_query_url = chat_main.stream_query_url
 
 pytestmark = pytest.mark.unit
 
@@ -35,7 +48,7 @@ class FakeRuntime:
     def __init__(self, answer: str = "Max LTV is 80%.") -> None:
         self.answer = answer
         self.calls: list[tuple[str, str, str]] = []
-        self.error: TalosError | None = None
+        self.error: HandlerError | None = None
 
     def stream_query(self, *, user_id: str, session_id: str, message: str) -> str:
         self.calls.append((user_id, session_id, message))
@@ -250,7 +263,7 @@ def test_http_post_replies_in_thread() -> None:
 
 
 def test_missing_reasoning_engine_exits_2() -> None:
-    with pytest.raises(TalosError, match="REASONING_ENGINE") as caught:
+    with pytest.raises(HandlerError, match="REASONING_ENGINE") as caught:
         config_from_env(
             {
                 "GOOGLE_CLOUD_PROJECT": "lab5-gemini-dev1",
@@ -260,45 +273,55 @@ def test_missing_reasoning_engine_exits_2() -> None:
     assert caught.value.exit_code == 2
 
 
-def test_outputs_supply_reasoning_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    for name in (
-        "GOOGLE_CLOUD_PROJECT",
-        "GOOGLE_CLOUD_LOCATION",
-        "REASONING_ENGINE",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr("docgen.env.repo_root", lambda: tmp_path)
-    infra = tmp_path / "infra"
-    infra.mkdir()
+def test_config_reads_only_the_supplied_env() -> None:
     resource = "projects/lab5-gemini-dev1/locations/us-east1/reasoningEngines/9"
-    (infra / "outputs.json").write_text(
-        json.dumps(
-            {
-                "GOOGLE_CLOUD_PROJECT": {"value": "lab5-gemini-dev1"},
-                "GOOGLE_CLOUD_LOCATION": {"value": "us-east1"},
-                "REASONING_ENGINE": {"value": resource},
-            }
-        ),
-        encoding="utf-8",
+    config = config_from_env(
+        {
+            "GOOGLE_CLOUD_PROJECT": "lab5-gemini-dev1",
+            "GOOGLE_CLOUD_LOCATION": "us-east1",
+            "REASONING_ENGINE": resource,
+            "GCS_BUCKET": "ignored",
+        }
     )
-    config = config_from_env(resolve_env(use_terraform=True))
     assert config.project == "lab5-gemini-dev1"
     assert config.location == "us-east1"
     assert config.reasoning_engine == resource
 
 
-def test_handler_holds_no_policy_text() -> None:
-    source = (repo_root() / "src/docgen/google_chat.py").read_text(encoding="utf-8")
+def test_bind_address_uses_port_env_or_flag() -> None:
+    assert bind_address(None, {}) == ("0.0.0.0", 8080)
+    assert bind_address(None, {"PORT": "9090"}) == ("0.0.0.0", 9090)
+    assert bind_address(["--port", "7"], {"PORT": "9090"}) == ("0.0.0.0", 7)
+    assert bind_address(["--host", "127.0.0.1", "--port", "8081"], {}) == (
+        "127.0.0.1",
+        8081,
+    )
+
+
+def test_v18_handler_is_standalone() -> None:
+    root = repo_root()
+    assert not (root / "src/docgen/google_chat.py").exists()
+    source = (root / "chat" / "main.py").read_text(encoding="utf-8")
     for needle in (
         "credit-policy-agent.instructions",
         "facts.yaml",
         "generateContent",
         "Policy ID",
         "That is not in the published policies",
+        "infra/outputs.json",
+        "docgen",
+        "google-adk",
+        "google.adk",
     ):
         assert needle not in source, needle
+    requirements = [
+        line.strip()
+        for line in (root / "chat" / "requirements.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert requirements == ["google-auth", "requests"]
 
 
 def test_teams_marker_is_not_hard_skipped() -> None:

@@ -73,7 +73,7 @@ T13|x|drop text-embedding-005 from constants and tests; scope grep text-embeddin
 T14|x|add Click subcommand `docgen index`; `gmake index` runs `uv run docgen index`; `wait=1` passes `--wait`|V9,V10,V13,I.cmd,I.index
 T15|x|add google_vertex_ai_reasoning_engine for agents/credit_officer; drop adk deploy agent_engine from Makefile deploy, README, docs/demo.md, and tests|V10,V15,I.cmd,I.infra
 T16|x|add google_discovery_engine_data_store kb-credit-policies; docgen index imports both GCS prefixes and does not create the store|V8,V9,V10,V13,I.cmd,I.index,I.infra
-T17|.|move handler out of `src/docgen/google_chat.py` into standalone `chat/main.py` + `chat/requirements.txt`; Cloud Run service `chat` + Artifact Registry repo `chat` + domain mapping `chat.lab5.ca`; `gmake chat` and `gmake chat-deploy` run `chat/` only|V8,V16,V18,I.cmd,I.file,I.infra,I.chat
+T17|x|move handler out of `src/docgen/google_chat.py` into standalone `chat/main.py` + `chat/requirements.txt`; Cloud Run service `chat` + Artifact Registry repo `chat` + domain mapping `chat.lab5.ca`; `gmake chat` and `gmake chat-deploy` run `chat/` only|V8,V16,V18,I.cmd,I.file,I.infra,I.chat
 T18|.|sync docs/demo.md and tests off `python -m docgen.google_chat` to `chat/main.py`, hosted URL `https://chat.lab5.ca`, and the Cloudflare DNS-only CNAME|V15,V18,I.file
 
 ## §B BUGS

@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+
 import pytest
 
-from docgen.google_chat import ChatHandlerConfig, RestAgentRuntime, handle_chat_event
+from docgen.env import repo_root
+
+
+def _load_chat():
+    path = repo_root() / "chat" / "main.py"
+    spec = importlib.util.spec_from_file_location("chat_main", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["chat_main"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_chat = _load_chat()
+ChatHandlerConfig = _chat.ChatHandlerConfig
+RestAgentRuntime = _chat.RestAgentRuntime
+handle_chat_event = _chat.handle_chat_event
 
 pytestmark = [pytest.mark.teams, pytest.mark.timeout(300)]
 

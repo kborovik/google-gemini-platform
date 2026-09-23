@@ -55,3 +55,12 @@ resource "google_project_iam_member" "discoveryengine_service_agent" {
 
   depends_on = [google_project_service.apis]
 }
+
+# Google Chat calls the handler as this service account.
+resource "google_cloud_run_v2_service_iam_member" "chat_invoker" {
+  project  = var.project
+  location = var.region
+  name     = google_cloud_run_v2_service.chat.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:chat@system.gserviceaccount.com"
+}
