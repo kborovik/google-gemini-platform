@@ -14,6 +14,33 @@ This is the same demo as [kborovik/azure-ai-foundry](https://github.com/kborovik
 
 The officer writes in Google Chat. A thin handler forwards the message to the agent on Agent Runtime. The agent searches one Agent Search data store that holds the policies and the sample applications, then answers in the same thread. Agent Search owns the document embeddings.
 
+### Question path
+
+```mermaid
+sequenceDiagram
+  actor Officer as Credit officer
+  participant Chat as Google Chat
+  participant Handler as Chat handler
+  participant Runtime as Agent Runtime
+  participant Agent as InteractiveAgent
+  participant Search as RetrievalAgent
+  participant Store as Agent Search
+  Officer->>Chat: Ask in the thread
+  Chat->>Handler: MESSAGE
+  Handler->>Runtime: Forward the question
+  Runtime->>Agent: Run the credit officer
+  Agent->>Search: Look up policy and the filing
+  Search->>Store: Search the data store
+  Store-->>Search: Passages and source names
+  Search-->>Agent: Retrieved passages
+  Agent-->>Runtime: Cited answer
+  Runtime-->>Handler: Cited answer
+  Handler-->>Chat: Reply in the same thread
+  Chat-->>Officer: Judgement with citations
+```
+
+### Two outcomes
+
 ```mermaid
 flowchart TB
   A[Credit officer<br/>asks in Google Chat] --> B[Agent Runtime]
@@ -30,6 +57,8 @@ The agent does two jobs:
 ## Design
 
 Two agents share one model, `gemini-3.8-flash`. InteractiveAgent holds the credit-officer instructions and calls RetrievalAgent. RetrievalAgent searches the one data store. Published policy is the source of truth. Sample applications are the files being judged.
+
+### The pieces
 
 ```mermaid
 flowchart TB
