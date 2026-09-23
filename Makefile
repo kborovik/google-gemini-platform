@@ -64,7 +64,7 @@ check: .venv ## Check Python code
 
 generate: .venv ## Generate sample client applications locally
 	$(call header,Generating client applications)
-	$(UV) run talos generate application --all --local-only
+	$(UV) run talos generate application --all
 
 deploy: .venv infra-create ## Upload corpora and import the RAG corpus
 	$(call need-terraform)
