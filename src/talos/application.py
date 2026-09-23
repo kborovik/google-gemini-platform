@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import secrets
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from typing import Any, Protocol
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateError
 
+from talos.chat import GENERATE_RETRY_DELAYS
 from talos.constants import (
     APPLICATION_DISCLAIMER_PHRASES,
     APPLICATION_FILENAME_TEMPLATE,
@@ -159,8 +161,19 @@ class GeminiChatCompleter:
                 "responseMimeType": "application/json",
             },
         }
+        delays = iter(GENERATE_RETRY_DELAYS)
         try:
-            response = self._rest.request("POST", url, json_body=body, timeout=120.0)
+            while True:
+                response = self._rest.request(
+                    "POST", url, json_body=body, timeout=120.0
+                )
+                if response.status_code != 429:
+                    break
+                try:
+                    delay = next(delays)
+                except StopIteration:
+                    break
+                time.sleep(delay)
         except TalosError as exc:
             raise TalosError(f"LLM call failed: {exc}", exit_code=1) from exc
         if response.status_code >= 400:

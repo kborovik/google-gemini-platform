@@ -106,6 +106,58 @@ def test_chat_and_application_post_on_global_for_a_regional_workload() -> None:
     assert expected.startswith("https://aiplatform.googleapis.com/v1/")
 
 
+def test_generate_retries_resource_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
+    from talos.chat import ChatConfig, GeminiChatModel
+
+    slept: list[float] = []
+    monkeypatch.setattr("talos.chat.time.sleep", lambda seconds: slept.append(seconds))
+
+    class FlakyRest:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def request(
+            self,
+            method: str,
+            url: str,
+            *,
+            json_body: object = None,
+            timeout: float = 60.0,
+        ) -> RestResponse:
+            del method, url, json_body, timeout
+            self.calls += 1
+            if self.calls < 3:
+                return RestResponse(
+                    status_code=429,
+                    json={"error": {"code": 429, "status": "RESOURCE_EXHAUSTED"}},
+                    text="exhausted",
+                )
+            return RestResponse(
+                status_code=200,
+                json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]},
+                text="ok",
+            )
+
+    rest = FlakyRest()
+    chat = GeminiChatModel(
+        rest,
+        ChatConfig(
+            project="lab5-gemini-dev1",
+            location="us-east1",
+            corpus_name="projects/p/locations/us-east5/ragCorpora/1",
+        ),
+    )
+    assert (
+        chat.generate(
+            contents=[{"role": "user", "parts": [{"text": "q"}]}],
+            system="s",
+        )
+        == "ok"
+    )
+    assert rest.calls == 3
+    assert slept == [2.0, 4.0]
+
+
 def test_allowlisted_regions_use_us_east5() -> None:
     assert rag_location("us-east1") == RAG_OPEN_LOCATION == "us-east5"
     assert rag_location("us-east4") == "us-east5"

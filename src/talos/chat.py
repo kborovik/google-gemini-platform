@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, TextIO
@@ -16,6 +17,7 @@ from talos.errors import TalosError
 from talos.gemini import candidate_text, generate_content_url, retrieval_tool
 
 CHAT_TIMEOUT_SECONDS = 180.0
+GENERATE_RETRY_DELAYS = (2.0, 4.0, 8.0)
 WAIT_LABEL = "Waiting for agent…"
 _QUIT = frozenset({"/quit", "/exit", "quit", "exit"})
 _SPINNER = "|/-\\"
@@ -116,9 +118,18 @@ class GeminiChatModel:
             "tools": [retrieval_tool(self._config.corpus_name)],
             "generationConfig": {"temperature": 0},
         }
-        response = self._rest.request(  # type: ignore[attr-defined]
-            "POST", url, json_body=body, timeout=self._config.timeout
-        )
+        delays = iter(GENERATE_RETRY_DELAYS)
+        while True:
+            response = self._rest.request(  # type: ignore[attr-defined]
+                "POST", url, json_body=body, timeout=self._config.timeout
+            )
+            if response.status_code != 429:
+                break
+            try:
+                delay = next(delays)
+            except StopIteration:
+                break
+            time.sleep(delay)
         if response.status_code >= 400:
             raise TalosError(
                 f"agent generateContent failed: HTTP {response.status_code} {response.text}",
