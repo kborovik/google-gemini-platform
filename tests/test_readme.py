@@ -21,6 +21,7 @@ def test_readme_is_hiring_manager_not_runbook() -> None:
     assert "```bash" not in text
     assert "gmake " not in text
     assert "uv run" not in text
+    assert "adk deploy" not in text
     for phrase in ("Google Chat", "Agent Search", "Agent Runtime", "docs/demo.md"):
         assert phrase in text
 
@@ -31,17 +32,18 @@ def test_demo_path_is_chat_and_agent_search() -> None:
     assert "talos" not in lowered
     assert "rag corpus" not in lowered
     assert "rag engine" not in lowered
+    assert "adk deploy" not in lowered
     for phrase in (
         "gmake generate",
         "uv run docgen generate application --all --local-only",
         "gmake deploy",
         "docgen upload",
         "docgen index --wait",
-        "adk deploy agent_engine",
-        "--project=lab5-gemini-dev1",
-        "--region=us-east1",
         "agents/credit_officer",
+        "credit-officer",
+        "credit-policy-agent",
         "kb-credit-policies",
+        "projects/lab5-gemini-dev1/locations/us-east1/reasoningEngines/{id}",
         "DATA_STORE",
         "REASONING_ENGINE",
         "python -m docgen.google_chat",

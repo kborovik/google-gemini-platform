@@ -98,7 +98,7 @@ Policies live in this repository. Sample applications are generated for the demo
 
 | Path | Role |
 | --- | --- |
-| `infra/` | Terraform: APIs, document bucket, agent service account |
+| `infra/` | Terraform: APIs, document bucket, agent service account, Agent Runtime |
 | `corpus/` | Policy facts and templates, plus the application-generation prompts |
 | `data/credit-policies/` | The twelve rendered policy documents |
 | `agents/credit_officer/` | InteractiveAgent and RetrievalAgent |

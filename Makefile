@@ -28,6 +28,7 @@ need-gcloud = $(if $(dry-run),,$(if $(shell command -v gcloud),,$(error gcloud C
 need-gcloud-auth = $(if $(dry-run),,$(shell gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gcloud not authenticated — run: gmake google-auth)))
 need-gh = $(if $(dry-run),,$(if $(shell command -v gh),,$(error gh CLI required)))
 need-gh-auth = $(if $(dry-run),,$(shell gh auth status >/dev/null 2>&1)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gh not authenticated — run: gh auth login)))
+need-cloudflared = $(if $(dry-run),,$(if $(shell command -v cloudflared),,$(error cloudflared not on PATH — brew install cloudflared)))
 need-clean = $(if $(dry-run),,$(if $(shell git status --porcelain),$(error working tree not clean — commit or stash first)))
 need-part = $(if $(part),,$(error usage: gmake release major|minor|patch))
 
@@ -35,6 +36,7 @@ need-part = $(if $(part),,$(error usage: gmake release major|minor|patch))
 # terraform-$(PROJECT), created in that project by the org factory.
 PROJECT ?= lab5-gemini-dev1
 REGION ?= us-east1
+CHAT_PORT ?= 8080
 google_project := $(PROJECT)
 google_region := $(REGION)
 google_zone ?= $(google_region)-b
@@ -53,7 +55,7 @@ rwildcard = $(strip \
 
 default: help
 
-.PHONY: help test check generate deploy index --wait preflight e2e clean
+.PHONY: help test check generate deploy chat index --wait preflight e2e clean
 .PHONY: terraform terraform-config terraform-fmt terraform-init terraform-validate
 .PHONY: terraform-plan terraform-apply terraform-destroy terraform-clean terraform-show terraform-list
 .PHONY: terraform-state-recursive terraform-state-versions terraform-state-unlock prompt
@@ -76,7 +78,7 @@ generate: .venv ## Generate sample client applications locally
 	$(call header,Generating client applications)
 	$(UV) run docgen generate application --all --local-only
 
-deploy: .venv terraform-apply ## Apply, set DATA_STORE, upload, index, deploy the agent
+deploy: .venv terraform-apply ## Apply, set DATA_STORE, upload, index
 	$(call need-terraform)
 	$(call header,Reading DATA_STORE)
 	data_store=$$(terraform -chdir=$(terraform_dir) output -raw DATA_STORE) && \
@@ -86,12 +88,6 @@ deploy: .venv terraform-apply ## Apply, set DATA_STORE, upload, index, deploy th
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload
 	$(MAKE) index wait=1
-	$(call header,Deploying credit officer)
-	$(UV) run adk deploy agent_engine \
-		--project=$(PROJECT) \
-		--region=$(REGION) \
-		--display_name=credit-officer \
-		agents/credit_officer
 
 # GNU make rejects `gmake index --wait` because a dashed word is an option.
 # `gmake index wait=1` and `gmake -- index --wait` poll indexed counts.
@@ -105,6 +101,34 @@ endif
 index: .venv ## Import both prefixes into data store kb-credit-policies
 	$(call header,Indexing Agent Search data store)
 	$(UV) run docgen index $(if $(wait),--wait,)
+
+# cloudflared publishes the handler at a trycloudflare.com HTTPS URL.
+chat: .venv ## Serve the Chat handler on a public HTTPS URL
+	$(call need-cloudflared)
+	$(call header,Google Chat handler)
+	printf '%s\n' "Public HTTPS URL is the trycloudflare.com address below. Paste it into the Chat app HTTP endpoint."
+	$(UV) run python -m docgen.google_chat --host 127.0.0.1 --port $(CHAT_PORT) & \
+	handler_pid=$$!; \
+	trap 'kill $$handler_pid 2>/dev/null; wait $$handler_pid 2>/dev/null || true' EXIT; \
+	trap 'exit 130' INT; \
+	trap 'exit 143' TERM; \
+	i=0; \
+	while true; do \
+		if ! kill -0 $$handler_pid 2>/dev/null; then \
+			wait $$handler_pid; \
+			exit $$?; \
+		fi; \
+		if curl -s -o /dev/null --max-time 0.2 "http://127.0.0.1:$(CHAT_PORT)/"; then \
+			break; \
+		fi; \
+		i=$$((i + 1)); \
+		if [ "$$i" -gt 50 ]; then \
+			echo "Chat handler did not listen on $(CHAT_PORT)" >&2; \
+			exit 1; \
+		fi; \
+		sleep 0.1; \
+	done; \
+	cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$(CHAT_PORT)"
 
 preflight: .venv
 	$(call need-gcloud)
@@ -281,7 +305,8 @@ help:
 	$(info $(yellow)test$(reset)                unit tests)
 	$(info $(yellow)check$(reset)               ruff + unit tests)
 	$(info $(yellow)generate$(reset)            sample applications, local only)
-	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait, adk deploy)
+	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait)
+	$(info $(yellow)chat$(reset)                handler on a public HTTPS URL)
 	$(info $(yellow)index$(reset)               import both prefixes into kb-credit-policies)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
 	$(info $(yellow)e2e$(reset)                 check, apply, generate, upload, index, live pytest)

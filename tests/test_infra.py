@@ -80,7 +80,22 @@ def test_tfvars_pin_lab5_gemini_dev1() -> None:
     assert 'region  = "us-east1"' in text
 
 
-def test_makefile_deploy_applies_uploads_indexes_and_deploys_adk() -> None:
+_ADK_CLASS_METHODS = {
+    "get_session": "",
+    "async_get_session": "async",
+    "list_sessions": "",
+    "async_list_sessions": "async",
+    "create_session": "",
+    "async_create_session": "async",
+    "delete_session": "",
+    "async_delete_session": "async",
+    "stream_query": "stream",
+    "async_stream_query": "async_stream",
+    "streaming_agent_run_with_events": "async_stream",
+}
+
+
+def test_makefile_deploy_applies_uploads_and_indexes() -> None:
     text = (repo_root() / "Makefile").read_text(encoding="utf-8")
     match = re.search(r"^deploy:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
     assert match is not None
@@ -90,15 +105,86 @@ def test_makefile_deploy_applies_uploads_indexes_and_deploys_adk() -> None:
     assert "agents/credit_officer/.env" in body
     assert "$(UV) run docgen upload" in body
     assert "$(MAKE) index wait=1" in body
-    assert "adk deploy agent_engine" in body
-    assert "--project=$(PROJECT)" in body
-    assert "--region=$(REGION)" in body
-    assert "--display_name=credit-officer" in body
-    assert "agents/credit_officer" in body
+    assert "adk deploy" not in text
     generated = re.search(r"^generate:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
     assert generated is not None
     assert "docgen generate application --all --local-only" in generated.group(1)
     assert "docgen generate" not in body
+
+
+def test_terraform_deploys_credit_officer_reasoning_engine() -> None:
+    infra = repo_root() / "infra"
+    text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(infra.glob("*.tf"))
+    )
+    assert 'resource "google_vertex_ai_reasoning_engine" "credit_officer"' in text
+    assert "package_spec" not in text
+    match = re.search(
+        r'resource "google_vertex_ai_reasoning_engine" "credit_officer" \{'
+        r"(?P<body>.*?)\n\}",
+        text,
+        re.S,
+    )
+    assert match is not None
+    body = match.group("body")
+    assert re.search(r"project\s+=\s+var\.project", body)
+    assert re.search(r"region\s+=\s+var\.region", body)
+    assert re.search(r'display_name\s+=\s+"credit-officer"', body)
+    assert re.search(r'agent_framework\s+=\s+"google-adk"', body)
+    assert "source_code_spec" in body
+    assert "inline_source" in body
+    assert "filebase64(data.archive_file.credit_officer.output_path)" in body
+    assert re.search(r'entrypoint_module\s+=\s+"agent"', body)
+    assert re.search(r'entrypoint_object\s+=\s+"root_agent"', body)
+    assert re.search(r'requirements_file\s+=\s+"requirements.txt"', body)
+    assert re.search(r'version\s+=\s+"3.14"', body)
+    assert "class_methods" in body
+    assert "jsonencode(local.adk_class_methods)" in body
+    assert re.search(
+        r"service_account\s+=\s+google_service_account\.agent\.email",
+        body,
+    )
+    assert re.search(
+        r'name\s+=\s+"DATA_STORE"\s+'
+        r"value\s+=\s+google_discovery_engine_data_store\.kb_credit_policies\.name",
+        body,
+    )
+    filenames = re.findall(r'filename\s+=\s+"([^"]+)"', text)
+    assert filenames == [
+        "agent.py",
+        "credit-policy-agent.instructions.md",
+        "requirements.txt",
+    ]
+    requirements = (repo_root() / "agents/credit_officer/requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    assert requirements.strip() == "google-adk>=2.9.2,<3"
+    methods = re.findall(
+        r'\bname\s+=\s+"([^"]+)"\s+api_mode\s+=\s+"([^"]*)"',
+        text,
+    )
+    assert dict(methods) == _ADK_CLASS_METHODS
+    assert len(methods) == 11
+    assert 'account_id   = "credit-policy-agent"' in text
+    assert re.search(
+        r'output "REASONING_ENGINE" \{\s*'
+        r"value = google_vertex_ai_reasoning_engine\.credit_officer\.name",
+        text,
+    )
+
+
+def test_makefile_chat_serves_handler_on_public_https() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "CHAT_PORT ?= 8080" in text
+    match = re.search(r"^chat:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert match is not None
+    body = match.group(1)
+    assert "need-cloudflared" in body
+    assert "$(UV) run python -m docgen.google_chat" in body
+    assert "--host 127.0.0.1" in body
+    assert "--port $(CHAT_PORT)" in body
+    assert "cloudflared tunnel --no-autoupdate --url" in body
+    assert "http://127.0.0.1:$(CHAT_PORT)" in body
 
 
 def test_makefile_index_wait_flag() -> None:

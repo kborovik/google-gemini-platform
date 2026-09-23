@@ -21,3 +21,7 @@ output "GOOGLE_AGENT_SERVICE_ACCOUNT" {
 output "DATA_STORE" {
   value = google_discovery_engine_data_store.kb_credit_policies.name
 }
+
+output "REASONING_ENGINE" {
+  value = google_vertex_ai_reasoning_engine.credit_officer.name
+}
