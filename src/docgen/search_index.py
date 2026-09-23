@@ -306,6 +306,34 @@ def run_index(
     echo(f"data store {store}")
 
 
+def index_config_from_env(
+    *,
+    project: str | None = None,
+    location: str | None = None,
+    bucket: str | None = None,
+    wait: bool = False,
+    dry_run: bool = False,
+    use_terraform: bool = True,
+) -> IndexConfig:
+    env = resolve_env(use_terraform=use_terraform)
+    resolved_project = project or env.get("GOOGLE_CLOUD_PROJECT") or ""
+    resolved_bucket = bucket or env.get("GCS_BUCKET") or ""
+    checked = dict(env)
+    checked["GOOGLE_CLOUD_PROJECT"] = resolved_project
+    checked["GOOGLE_CLOUD_LOCATION"] = (
+        location or env.get("GOOGLE_CLOUD_LOCATION") or ""
+    )
+    checked["GCS_BUCKET"] = resolved_bucket
+    if not dry_run or not resolved_project or not resolved_bucket:
+        require_env(checked)
+    return IndexConfig(
+        project=resolved_project,
+        bucket=resolved_bucket,
+        wait=wait,
+        dry_run=dry_run,
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
     wait = False
@@ -319,19 +347,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"unknown argument {arg}", file=sys.stderr)
             raise SystemExit(2)
     try:
-        env = resolve_env(use_terraform=True)
-        if not dry_run:
-            require_env(env)
-        elif not env.get("GOOGLE_CLOUD_PROJECT") or not env.get("GCS_BUCKET"):
-            require_env(env)
-        run_index(
-            IndexConfig(
-                project=env.get("GOOGLE_CLOUD_PROJECT") or "",
-                bucket=env.get("GCS_BUCKET") or "",
-                wait=wait,
-                dry_run=dry_run,
-            )
-        )
+        run_index(index_config_from_env(wait=wait, dry_run=dry_run))
     except TalosError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(exc.exit_code) from exc

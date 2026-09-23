@@ -59,7 +59,7 @@ def _run(action: object) -> None:
 )
 @click.version_option(version=__version__, prog_name="docgen")
 def cli() -> None:
-    """Generate credit-policy documents and upload them to Cloud Storage."""
+    """Generate credit-policy documents, upload them, and index Agent Search."""
 
 
 @cli.group(invoke_without_command=True)
@@ -290,5 +290,53 @@ def upload(
             force=force,
         )
         run_deploy(config, echo=click.echo)
+
+    _run(action)
+
+
+@cli.command("index")
+@click.option(
+    "--project", default=None, help="GCP project. Default $GOOGLE_CLOUD_PROJECT."
+)
+@click.option(
+    "--location", default=None, help="GCP region. Default $GOOGLE_CLOUD_LOCATION."
+)
+@click.option("--bucket", default=None, help="GCS bucket. Default $GCS_BUCKET.")
+@click.option(
+    "--wait",
+    is_flag=True,
+    help="Poll indexed counts until they meet the floors.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Print the index plan. Does not call Discovery Engine.",
+)
+@click.option(
+    "--no-terraform",
+    is_flag=True,
+    help="Do not fill missing env vars from `infra/outputs.json`.",
+)
+def index(
+    project: str | None,
+    location: str | None,
+    bucket: str | None,
+    wait: bool,
+    dry_run: bool,
+    no_terraform: bool,
+) -> None:
+    """Ensure data store kb-credit-policies and import both GCS prefixes."""
+    from docgen.search_index import index_config_from_env, run_index
+
+    def action() -> None:
+        config = index_config_from_env(
+            project=project,
+            location=location,
+            bucket=bucket,
+            wait=wait,
+            dry_run=dry_run,
+            use_terraform=not no_terraform,
+        )
+        run_index(config, echo=click.echo)
 
     _run(action)

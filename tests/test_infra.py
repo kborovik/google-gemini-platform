@@ -26,7 +26,8 @@ def test_terraform_has_no_rag_engine_tier() -> None:
     )
     makefile = (repo_root() / "Makefile").read_text(encoding="utf-8")
     assert "infra-rag-destroy" not in makefile
-    assert "python -m docgen.search_index" in makefile
+    assert "$(UV) run docgen index" in makefile
+    assert "python -m docgen.search_index" not in makefile
 
 
 def test_terraform_variables_are_only_project_and_region() -> None:
@@ -50,7 +51,7 @@ def test_makefile_index_wait_flag() -> None:
     match = re.search(r"^index:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
     assert match is not None
     body = match.group(1)
-    assert "$(UV) run python -m docgen.search_index $(if $(wait),--wait,)" in body
+    assert "$(UV) run docgen index $(if $(wait),--wait,)" in body
     assert "us-east5" not in text
     assert "google_vertex_ai_rag_engine_config" not in text
 

@@ -67,7 +67,7 @@ T10|x|add Google Chat handler: MESSAGE → streamQuery; session = Chat user + th
 T11|x|rename package and console script talos → docgen; docgen = generate + GCS upload only; drop deploy and chat|V6,V9,I.cmd
 T12|x|sync README and docs/demo.md to the Chat + Agent Search path|V15,I.file
 T13|x|drop text-embedding-005 from constants and tests; scope grep text-embedding-005|V7
-T14|.|add Click subcommand `docgen index`; `gmake index` runs `uv run docgen index`; `wait=1` passes `--wait`|V9,V10,V13,I.cmd,I.index
+T14|x|add Click subcommand `docgen index`; `gmake index` runs `uv run docgen index`; `wait=1` passes `--wait`|V9,V10,V13,I.cmd,I.index
 
 ## §B BUGS
 

@@ -83,7 +83,7 @@ endif
 
 index: .venv ## Ensure the Agent Search data store and import both prefixes
 	$(call header,Indexing Agent Search data store)
-	$(UV) run python -m docgen.search_index $(if $(wait),--wait,)
+	$(UV) run docgen index $(if $(wait),--wait,)
 
 preflight: .venv
 	$(call need-gcloud)
