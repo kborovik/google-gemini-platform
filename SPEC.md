@@ -13,7 +13,7 @@ Demo: credit officer in Google Chat asks an ADK Python agent on Agent Runtime. R
 - public Gemini API via Application Default Credentials; no API keys committed
 - one Agent Search data store imports both prefixes; InteractiveAgent synthesizes; no separate answer-synthesis service
 - CPython 3.14; `requires-python = ">=3.14"`; `[tool.uv] python-preference = "managed"`; no PEP 723 under `src/`
-- one CLI `talos` (generate, deploy); officer chat = Chat app, not a talos subcommand; local dev = `adk run` / `adk web`; unit via `gmake test` → `uv run pytest`
+- one CLI `docgen` (generate, upload); no deploy; no chat; no data-store import; officer chat = Chat app; local dev = `adk run` / `adk web`; unit via `gmake test` → `uv run pytest`
 - workload project `lab5-gemini-dev1`; region `us-east1`; state bucket `terraform-lab5-gemini-dev1` owned by gcp-lab5-org
 - chat model `gemini-3.8-flash`; document embeddings owned by Agent Search
 - no Application Integration / Dialogflow in v1 Terraform
@@ -22,7 +22,8 @@ Demo: credit officer in Google Chat asks an ADK Python agent on Agent Runtime. R
 
 ## §I INTERFACES
 
-- cmd: `uv run talos generate` Click group; bare → help exit 2. `generate policy` renders facts+templates, writes `data/credit-policies/`, optional GCS upload; `--local-only` / `--gcs-only` mutex; `--dry-run` / `--force` / `--fail-if-missing-gcs` / `--no-terraform`. `generate application` calls Gemini JSON mode; `--type` or `--all`; `--count`; `--force --application-id`; `--local-only`; `--dry-run` prints serials and does not call the model. `talos deploy` syncs both prefixes (hash-skip), ensures one Agent Search data store `kb-credit-policies`, imports both GCS URIs, `--wait` polls import until indexed counts meet the floors. No `talos chat`. `adk run` and `adk web` are local dev only. `adk deploy agent_engine --project --region --display_name` deploys the ADK package to Agent Runtime. `talos --completion bash|zsh|fish|powershell` prints Click source. Missing required env → exit 2.
+- cmd: `uv run docgen generate` Click group; bare → help exit 2. `generate policy` renders facts+templates, writes `data/credit-policies/`, optional GCS upload; `--local-only` / `--gcs-only` mutex; `--dry-run` / `--force` / `--fail-if-missing-gcs` / `--no-terraform`. `generate application` calls Gemini JSON mode; `--type` or `--all`; `--count`; `--force --application-id`; `--local-only`; `--dry-run` prints serials and does not call the model. `docgen upload` hash-skips both prefixes to the bucket and does not import them. No `docgen deploy`. No `docgen chat`. `adk run` and `adk web` are local dev only. `adk deploy agent_engine --project --region --display_name` deploys the ADK package to Agent Runtime. `docgen --completion bash|zsh|fish|powershell` prints Click source. Missing required env → exit 2.
+- index: `gmake index` ensures Agent Search data store `kb-credit-policies`, imports both GCS URIs, `--wait` polls indexed counts to the floors. Not a `docgen` subcommand.
 - env: `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GCS_BUCKET`, `GCS_URI`, `DATA_STORE`, `REASONING_ENGINE`. Flags > process env > `infra/outputs.json` (unwrap `.value`). No `.env` load.
 - names: project `lab5-gemini-dev1`; region `us-east1`; bucket `lab5-gemini-dev1-credit-docs`; tfstate bucket `terraform-lab5-gemini-dev1` prefix `google-gemini-platform`; data store display name `kb-credit-policies`; data store location `global`; Agent Runtime region `us-east1`; prefixes `credit-policies` and `client-applications`; model `gemini-3.8-flash`
 - file: `corpus/facts.yaml`; `corpus/templates/*.md.j2`; committed `data/credit-policies/*.md` + `manifest.json`; gitignored `data/client-applications/*.md` + `manifest.json`; `agents/credit-policy-agent.instructions.md`; `agents/credit_officer/` (`root_agent`); `tests/fixtures/golden_queries.yaml` (18 ids); `tests/fixtures/client-applications/`
@@ -40,11 +41,11 @@ V5: corpus-shape — 12 policy Markdown files from `corpus/facts.yaml`; each fac
 V6: hash-skip — object overwrite skip via metadata `content_sha256` lowercase hex SHA-256 of the UTF-8 bytes
 V7: models — chat `gemini-3.8-flash`; Agent Search owns document embeddings; this repo does not set `text-embedding-005`
 V8: region — workload project `lab5-gemini-dev1`; bucket and Agent Runtime in `us-east1`; Agent Search data store location `global`
-V9: talos-cli — one Click package `talos` with generate and deploy; no chat subcommand; missing required env → exit 2; bare `talos generate` → help exit 2; generate does not deploy
-V10: deploy-split — bucket, APIs, and service account via Terraform; object sync + data store ensure + import via `talos deploy`; no RAG Engine tier
+V9: docgen-cli — one Click package `docgen`; subcommands generate and upload only; upload hash-skips both prefixes to the bucket; no deploy; no chat; no data-store import; missing required env → exit 2; bare `docgen generate` → help exit 2
+V10: deploy-split — bucket, APIs, and service account via Terraform; object upload via `docgen`; data store ensure + import via `gmake index`; no RAG Engine tier
 V11: env-contract — flags override process env; missing keys from `infra/outputs.json` unless `--no-terraform`; never spawn `terraform output` at runtime; never load `.env`
 V12: secrets — Application Default Credentials; never commit keys
-V13: wait-gate — `talos deploy --wait` requires local policy files ≥ 12 and local application files ≥ 3, then Agent Search indexed counts at the same floors (application floor = max(3, local size))
+V13: wait-gate — `gmake index --wait` requires local policy files ≥ 12 and local application files ≥ 3, then Agent Search indexed counts at the same floors (application floor = max(3, local size))
 V14: application-generate — opaque `CA-{YYYYMMDD}-{unix_ms}`; intended outcome only in `manifest.json`; mixed product per type; validate + one retry; prompts do not inject disclaimer phrases
 V15: readme-hiring-manager — README.md is for a hiring manager: accurate, short, not an engineer runbook
 V16: tfvars — apply `-var-file=lab5-gemini-dev1.tfvars`; terraform variables are only `project` and `region`
@@ -61,9 +62,9 @@ T5|x|talos deploy hash-skip upload + RAG import + --wait|V6,V10,V13,I.cmd
 T6|x|talos chat grounded generateContent + REPL|V1,V3,V4,I.cmd
 T7|x|sync chat model id to gemini-3.8-flash and publish generateContent on global for a single-region workload|V7,V17,I.cmd
 T8|.|add ADK package InteractiveAgent + RetrievalAgent; RetrievalAgent tool = VertexAiSearchTool only; InteractiveAgent calls it via AgentTool; load credit-officer instructions|V1,V3,V4,V7,I.cmd
-T9|.|swap terraform + talos deploy off RAG Engine onto one Agent Search data store; import both GCS prefixes; --wait uses indexed counts|V6,V8,V10,V13,V16,I.infra
+T9|.|swap terraform off RAG Engine; gmake index ensures one Agent Search data store and imports both GCS prefixes; --wait uses indexed counts|V8,V10,V13,V16,V17,I.infra,I.index
 T10|.|add Google Chat handler: MESSAGE → streamQuery; session = Chat user + thread; reply in thread|V4,I.chat
-T11|.|drop talos chat and the us-east5 RAG location remap from the live path|V9,V17,I.cmd
+T11|.|rename package and console script talos → docgen; docgen = generate + GCS upload only; drop deploy and chat|V6,V9,I.cmd
 T12|.|sync README and docs/demo.md to the Chat + Agent Search path|V15,I.file
 
 ## §B BUGS
