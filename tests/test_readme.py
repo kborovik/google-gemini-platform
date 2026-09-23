@@ -46,8 +46,14 @@ def test_demo_path_is_chat_and_agent_search() -> None:
         "projects/lab5-gemini-dev1/locations/us-east1/reasoningEngines/{id}",
         "DATA_STORE",
         "REASONING_ENGINE",
-        "python -m docgen.google_chat",
+        "chat/main.py",
+        "https://chat.lab5.ca",
+        "Cloudflare DNS-only CNAME",
+        "ghs.googlehosted.com",
+        "gmake chat-deploy",
         "Google Chat",
         "async_stream_query",
     ):
         assert phrase in text
+    assert "python -m docgen.google_chat" not in text
+    assert "docgen.google_chat" not in text
