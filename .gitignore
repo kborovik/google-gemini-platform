@@ -5,6 +5,7 @@ data/client-applications/manifest.json
 *.tfstate
 *.tfstate.*
 infra/outputs.json
+infra/terraform.tfvars
 .terraform/
 crash.log
 crash.*.log

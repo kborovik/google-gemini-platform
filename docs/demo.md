@@ -2,7 +2,7 @@
 
 Five steps take this repository to a cited answer in Google Chat.
 
-1. **Google Cloud (`gmake infra-create`).** Terraform applies in project `lab5-gemini-dev1`, region `us-east1`. It creates the private document bucket `lab5-gemini-dev1-credit-docs` and the agent service account. It enables `aiplatform.googleapis.com`, `discoveryengine.googleapis.com`, and `storage.googleapis.com`. State stays in the existing bucket `terraform-lab5-gemini-dev1`.
+1. **Google Cloud (`gmake terraform-apply`).** Terraform applies in project `lab5-gemini-dev1`, region `us-east1`. It creates the private document bucket `lab5-gemini-dev1-credit-docs` and the agent service account. It enables `aiplatform.googleapis.com`, `discoveryengine.googleapis.com`, and `storage.googleapis.com`. State stays in the existing bucket `terraform-lab5-gemini-dev1`.
 
 2. **Documents.** Twelve credit policies are already rendered from `corpus/` into `data/credit-policies/`. `docgen generate application` writes sample applications under `data/client-applications/`. `gmake deploy` runs `docgen upload`, which stores both prefixes in the bucket. The index step imports them.
 
@@ -13,7 +13,7 @@ Five steps take this repository to a cited answer in Google Chat.
 5. **Google Chat.** A credit officer sends a `MESSAGE`. `python -m docgen.google_chat` receives it, calls `reasoningEngines/{id}:streamQuery` with class method `async_stream_query`, and posts the model text in that thread. `user_id` is the Chat user. `session_id` is the space plus the thread. The handler holds no policy text.
 
 ```bash
-gmake infra-create
+gmake terraform-apply
 uv run docgen generate application --all --local-only
 gmake deploy
 gmake index wait=1

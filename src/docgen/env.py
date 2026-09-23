@@ -92,7 +92,7 @@ def require_env(env: dict[str, str]) -> None:
         names = ", ".join(missing)
         raise TalosError(
             f"Google Cloud environment is not configured (missing {names}). "
-            "Set the variables, run `gmake infra-create` (writes "
+            "Set the variables, run `gmake terraform-apply` (writes "
             "`infra/outputs.json`), or pass CLI flags.",
             exit_code=2,
         )

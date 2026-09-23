@@ -356,7 +356,10 @@ def main(argv: list[str] | None = None) -> None:
 def _default_ops(config: IndexConfig) -> VertexSearchOps:
     from docgen.rest import RequestsRest
 
-    return VertexSearchOps(RequestsRest(), config.project)
+    return VertexSearchOps(
+        RequestsRest(quota_project=config.project),
+        config.project,
+    )
 
 
 def _assert_local_wait_ready(policy_dir: Path, application_dir: Path) -> int:

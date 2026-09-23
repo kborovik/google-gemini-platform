@@ -25,8 +25,7 @@ dry-run = $(findstring n,$(firstword $(MAKEFLAGS)))
 
 need-terraform = $(if $(dry-run),,$(if $(shell command -v terraform),,$(error terraform not on PATH)))
 need-gcloud = $(if $(dry-run),,$(if $(shell command -v gcloud),,$(error gcloud CLI required)))
-need-gcloud-auth = $(if $(dry-run),,$(shell gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gcloud not authenticated — run: gcloud auth login && gcloud auth application-default login)))
-need-jq = $(if $(dry-run),,$(if $(shell command -v jq),,$(error jq required)))
+need-gcloud-auth = $(if $(dry-run),,$(shell gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gcloud not authenticated — run: gmake google-auth)))
 need-gh = $(if $(dry-run),,$(if $(shell command -v gh),,$(error gh CLI required)))
 need-gh-auth = $(if $(dry-run),,$(shell gh auth status >/dev/null 2>&1)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gh not authenticated — run: gh auth login)))
 need-clean = $(if $(dry-run),,$(if $(shell git status --porcelain),$(error working tree not clean — commit or stash first)))
@@ -36,9 +35,17 @@ need-part = $(if $(part),,$(error usage: gmake release major|minor|patch))
 # terraform-$(PROJECT), created in that project by the org factory.
 PROJECT ?= lab5-gemini-dev1
 REGION ?= us-east1
+google_project := $(PROJECT)
+google_region := $(REGION)
+google_zone ?= $(google_region)-b
 TFSTATE_BUCKET := terraform-$(PROJECT)
 TF_PREFIX := google-gemini-platform
 TF_VAR_FILE := $(PROJECT).tfvars
+
+git_root := $(shell git rev-parse --show-toplevel)
+terraform_dir := $(git_root)/infra
+terraform_tfvars := $(terraform_dir)/$(TF_VAR_FILE)
+terraform_bucket := $(TFSTATE_BUCKET)
 
 rwildcard = $(strip \
 	$(wildcard $(1)$(2)) \
@@ -46,9 +53,11 @@ rwildcard = $(strip \
 
 default: help
 
-.PHONY: help test check generate deploy index --wait infra preflight e2e clean
-.PHONY: infra-create infra-plan infra-fmt infra-validate infra-show infra-status infra-destroy infra-init
-.PHONY: infra-backend-show
+.PHONY: help test check generate deploy index --wait preflight e2e clean
+.PHONY: terraform terraform-config terraform-fmt terraform-init terraform-validate
+.PHONY: terraform-plan terraform-apply terraform-destroy terraform-clean terraform-show terraform-list
+.PHONY: terraform-state-recursive terraform-state-versions terraform-state-unlock prompt
+.PHONY: google google-auth google-logout google-config
 .PHONY: release major minor patch
 .PHONY: _release-pre _release-bump _release-tag _release-gh
 
@@ -67,7 +76,7 @@ generate: .venv ## Generate sample client applications locally
 	$(call header,Generating client applications)
 	$(UV) run docgen generate application --all
 
-deploy: .venv infra-create ## Upload corpora to the document bucket
+deploy: .venv terraform-apply ## Upload corpora to the document bucket
 	$(call need-terraform)
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload
@@ -98,7 +107,7 @@ ifneq ($(filter e2e,$(MAKECMDGOALS)),)
 $(if $(FILE),$(if $(e2e_target),,$(error no test file matches FILE=$(FILE))))
 endif
 
-e2e: check preflight infra-create generate deploy ## infra-create + generate + upload + index + live pytest
+e2e: check preflight terraform-apply generate deploy ## terraform-apply + generate + upload + index + live pytest
 	$(call header,Indexing Agent Search data store)
 	$(MAKE) index wait=1
 	$(call header,Live e2e)
@@ -110,60 +119,106 @@ clean: ## Remove caches and bytecode
 	rm -rf .ruff_cache .pytest_cache dist build src/docgen.egg-info *.egg-info $(call rwildcard,,__pycache__)
 	rm -f .release-notes $(call rwildcard,,*.pyc) $(call rwildcard,,.DS_Store)
 
-##@ Infrastructure:
-infra-backend-show:
-	$(call need-gcloud)
-	$(call need-gcloud-auth)
-	gcloud storage buckets describe gs://$(TFSTATE_BUCKET) --project=$(PROJECT)
+##@ Terraform:
 
-infra-fmt:
-	$(call need-terraform)
-	$(call header,Terraform fmt)
-	terraform -chdir=infra fmt
+ifeq ($(wildcard $(terraform_tfvars)),)
+$(warning ==> $(terraform_tfvars) not found <==)
+endif
 
-infra-init: infra-fmt
+terraform: terraform-plan prompt terraform-apply ## Plan, confirm, then apply
+
+terraform-config:
+	$(call header,Configure Terraform)
+	ln -fs $(terraform_tfvars) $(terraform_dir)/terraform.tfvars
+
+terraform-fmt: terraform-config
+	$(call need-terraform)
+	$(call header,Check Terraform Code Format)
+	terraform -chdir=$(terraform_dir) fmt -check -recursive
+
+terraform-init: terraform-fmt
 	$(call need-gcloud)
 	$(call need-terraform)
 	$(call need-gcloud-auth)
-	gcloud storage buckets describe gs://$(TFSTATE_BUCKET) --project=$(PROJECT) >/dev/null 2>&1 \
-	  || { echo "backend bucket missing — gs://$(TFSTATE_BUCKET) is created by gcp-lab5-org" >&2; exit 1; }
-	terraform -chdir=infra init -input=false -reconfigure \
-		-backend-config="bucket=$(TFSTATE_BUCKET)" \
+	$(call header,Initialize Terraform)
+	gcloud storage buckets describe gs://$(terraform_bucket) --project=$(google_project) >/dev/null 2>&1 \
+	  || { echo "backend bucket missing — gs://$(terraform_bucket) is created by gcp-lab5-org" >&2; exit 1; }
+	terraform -chdir=$(terraform_dir) init -input=false -upgrade -reconfigure \
+		-backend-config="bucket=$(terraform_bucket)" \
 		-backend-config="prefix=$(TF_PREFIX)"
 
-infra-validate: infra-init
-	$(call header,Terraform validate $(PROJECT))
-	terraform -chdir=infra validate
+terraform-validate: terraform-init
+	$(call header,Validate Terraform)
+	terraform -chdir=$(terraform_dir) validate
 
-infra-plan: infra-validate ## terraform plan in $(PROJECT)
-	$(call header,Terraform plan $(PROJECT))
-	terraform -chdir=infra plan -input=false -var-file=$(TF_VAR_FILE)
+terraform-plan: terraform-validate ## Plan in $(PROJECT)
+	$(call header,Run Terraform Plan)
+	terraform -chdir=$(terraform_dir) plan -input=false -refresh=true -var-file=$(TF_VAR_FILE)
 
-infra-create: infra-validate ## terraform apply in $(PROJECT); write infra/outputs.json
-	$(call header,Terraform apply $(PROJECT))
-	terraform -chdir=infra apply -input=false -auto-approve -var-file=$(TF_VAR_FILE)
-	terraform -chdir=infra output -json > infra/outputs.json
+terraform-apply: terraform-validate ## Apply in $(PROJECT); write infra/outputs.json
+	$(call header,Run Terraform Apply)
+	terraform -chdir=$(terraform_dir) apply -auto-approve -input=false -var-file=$(TF_VAR_FILE)
+	terraform -chdir=$(terraform_dir) output -json > $(terraform_dir)/outputs.json
 
-infra-show:
-	terraform -chdir=infra show -no-color
+terraform-destroy: terraform-validate ## Destroy the workload stack
+	$(call header,Terraform destroy $(PROJECT))
+	terraform -chdir=$(terraform_dir) apply -destroy -input=false -refresh=true -var-file=$(TF_VAR_FILE)
+	rm -f $(terraform_dir)/outputs.json
 
-infra-status: ## Concise live bucket and project status
+terraform-show:
+	$(call need-terraform)
+	terraform -chdir=$(terraform_dir) show -no-color | bat -l Terraform
+
+terraform-list:
+	$(call need-terraform)
+	terraform -chdir=$(terraform_dir) state list
+
+terraform-state-recursive:
 	$(call need-gcloud)
 	$(call need-gcloud-auth)
-	$(call need-jq)
-	$(call header,Infra status)
-	test -f infra/outputs.json || { echo "missing infra/outputs.json — run: gmake infra-create" >&2; exit 1; }
-	project=$$(jq -r '.GOOGLE_CLOUD_PROJECT.value' infra/outputs.json); \
-	bucket=$$(jq -r '.GCS_BUCKET.value' infra/outputs.json); \
-	echo "project $$project"; \
-	gcloud storage buckets describe gs://$$bucket --project=$$project --format='value(name,location)'; \
-	echo "credit-policies $$(gcloud storage objects list gs://$$bucket/credit-policies --format='value(name)' | wc -l | tr -d ' ') objects"; \
-	echo "client-applications $$(gcloud storage objects list gs://$$bucket/client-applications --format='value(name)' | wc -l | tr -d ' ') objects"
+	gcloud storage ls -r "gs://$(terraform_bucket)/$(TF_PREFIX)/**"
 
-infra-destroy: infra-init ## terraform destroy workload stack; drop infra/outputs.json
-	$(call header,Terraform destroy $(PROJECT))
-	terraform -chdir=infra destroy -input=false -auto-approve -var-file=$(TF_VAR_FILE)
-	rm -f infra/outputs.json
+terraform-state-versions:
+	$(call need-gcloud)
+	$(call need-gcloud-auth)
+	gcloud storage ls -a "gs://$(terraform_bucket)/$(TF_PREFIX)/default.tfstate"
+
+terraform-state-unlock:
+	$(call need-gcloud)
+	$(call need-gcloud-auth)
+	$(call header,Remove Terraform state lock)
+	gcloud storage rm "gs://$(terraform_bucket)/$(TF_PREFIX)/default.tflock"
+
+terraform-clean:
+	$(call header,Delete Terraform providers and local state)
+	rm -rf $(terraform_dir)/.terraform
+
+prompt:
+	printf "$(yellow)Continue? (yes/no)$(reset): "
+	read answer && [ "$$answer" = "yes" ] || exit 127
+
+##@ Google Cloud:
+
+google: google-config ## Point the Google CLI at $(PROJECT)
+
+google-auth: ## Log in and refresh application-default credentials
+	$(call need-gcloud)
+	$(call header,Configure Google CLI)
+	gcloud auth login --update-adc --no-launch-browser
+
+google-logout: ## Revoke gcloud credentials
+	$(call need-gcloud)
+	$(call header,Logout Google CLI)
+	gcloud auth revoke --all
+
+google-config: ## Set quota project, project, region, and zone
+	$(call need-gcloud)
+	$(call need-gcloud-auth)
+	gcloud auth application-default set-quota-project $(google_project)
+	gcloud config set core/project $(google_project)
+	gcloud config set compute/region $(google_region)
+	gcloud config set compute/zone $(google_zone)
+	gcloud config list
 
 ##@ Release:
 part := $(firstword $(filter major minor patch,$(MAKECMDGOALS)))
@@ -210,15 +265,19 @@ uv.lock: pyproject.toml
 help:
 	$(info $(blue)Usage: $(green)gmake [recipe]$(reset))
 	$(info )
-	$(info $(yellow)test$(reset)              unit tests)
-	$(info $(yellow)check$(reset)             ruff + unit tests)
-	$(info $(yellow)generate$(reset)          sample applications, local only)
-	$(info $(yellow)deploy$(reset)            terraform apply + upload both prefixes)
-	$(info $(yellow)index$(reset)             ensure data store kb-credit-policies and import)
-	$(info $(yellow)index wait=1$(reset)      poll indexed counts (also: gmake -- index --wait))
-	$(info $(yellow)e2e$(reset)               check, apply, generate, upload, index, live pytest)
-	$(info $(yellow)infra-create$(reset)      terraform apply in $(PROJECT))
-	$(info $(yellow)infra-plan$(reset)        terraform plan)
-	$(info $(yellow)infra-destroy$(reset)     terraform destroy workload stack)
-	$(info $(yellow)release$(reset)           gmake release major|minor|patch)
+	$(info $(yellow)test$(reset)                unit tests)
+	$(info $(yellow)check$(reset)               ruff + unit tests)
+	$(info $(yellow)generate$(reset)            sample applications, local only)
+	$(info $(yellow)deploy$(reset)              terraform apply + upload both prefixes)
+	$(info $(yellow)index$(reset)               ensure data store kb-credit-policies and import)
+	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
+	$(info $(yellow)e2e$(reset)                 check, apply, generate, upload, index, live pytest)
+	$(info $(yellow)terraform$(reset)           plan, confirm, then apply)
+	$(info $(yellow)terraform-plan$(reset)      plan in $(PROJECT))
+	$(info $(yellow)terraform-apply$(reset)     apply; write infra/outputs.json)
+	$(info $(yellow)terraform-destroy$(reset)   destroy workload stack)
+	$(info $(yellow)google-auth$(reset)         log in and refresh application-default credentials)
+	$(info $(yellow)google-config$(reset)       set project, region, zone, and quota project)
+	$(info $(yellow)google-logout$(reset)       revoke gcloud credentials)
+	$(info $(yellow)release$(reset)             gmake release major|minor|patch)
 	:

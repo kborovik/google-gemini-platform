@@ -1082,7 +1082,7 @@ def run_generate_application(
         raise TalosError(
             "Google Cloud environment is not configured (missing "
             + ", ".join(missing)
-            + "). Set the variables, run `gmake infra-create` "
+            + "). Set the variables, run `gmake terraform-apply` "
             "(writes `infra/outputs.json`), or pass --dry-run.",
             exit_code=2,
         )
@@ -1094,7 +1094,7 @@ def run_generate_application(
         if not gcs_generate_configured(generate_env, config.bucket):
             raise TalosError(
                 "Google Cloud environment is not configured (missing GCS_BUCKET). "
-                "Set the variable, run `gmake infra-create`, or pass --local-only.",
+                "Set the variable, run `gmake terraform-apply`, or pass --local-only.",
                 exit_code=2,
             )
 

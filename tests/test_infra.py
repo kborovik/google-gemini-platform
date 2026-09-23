@@ -9,6 +9,12 @@ from docgen.env import repo_root
 pytestmark = pytest.mark.unit
 
 
+def test_discoveryengine_service_agent_can_stage_imports() -> None:
+    text = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
+    assert 'role    = "roles/discoveryengine.serviceAgent"' in text
+    assert "gcp-sa-discoveryengine.iam.gserviceaccount.com" in text
+
+
 def test_terraform_has_no_rag_engine_tier() -> None:
     infra = repo_root() / "infra"
     assert not (infra / "rag.tf").exists()
@@ -62,3 +68,25 @@ def test_makefile_uses_org_factory_state_bucket() -> None:
     assert "TFSTATE_BUCKET := terraform-$(PROJECT)" in text
     assert "infra-backend-create" not in text
     assert "infra-backend-destroy" not in text
+    assert "buckets create" not in text
+    assert "gcloud projects create" not in text
+
+
+def test_makefile_terraform_recipes_follow_org_factory() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "terraform -chdir=$(terraform_dir) fmt -check -recursive" in text
+    assert "init -input=false -upgrade -reconfigure" in text
+    assert '-backend-config="bucket=$(terraform_bucket)"' in text
+    assert '-backend-config="prefix=$(TF_PREFIX)"' in text
+    assert "plan -input=false -refresh=true -var-file=$(TF_VAR_FILE)" in text
+    assert "apply -auto-approve -input=false -var-file=$(TF_VAR_FILE)" in text
+    assert "output -json > $(terraform_dir)/outputs.json" in text
+    assert "apply -destroy -input=false -refresh=true -var-file=$(TF_VAR_FILE)" in text
+    assert "rm -f $(terraform_dir)/outputs.json" in text
+    assert re.search(r"^infra-", text, re.M) is None
+    assert "gcloud auth login --update-adc --no-launch-browser" in text
+    assert "gcloud auth application-default set-quota-project $(google_project)" in text
+    assert "gcloud config set core/project $(google_project)" in text
+    assert "gcloud config set compute/region $(google_region)" in text
+    assert "gcloud config set compute/zone $(google_zone)" in text
+    assert "gcloud auth revoke --all" in text

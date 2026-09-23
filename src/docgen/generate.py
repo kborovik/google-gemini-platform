@@ -108,7 +108,7 @@ class GcsObjectStore:
         if not self._bucket.exists():
             raise TalosError(
                 f"GCS bucket gs://{self._bucket.name} does not exist. "
-                "Run `gmake infra-create`.",
+                "Run `gmake terraform-apply`.",
                 exit_code=2,
             )
 
@@ -160,12 +160,12 @@ def resolve_bucket(
     if purpose == "deploy":
         raise TalosError(
             "Google Cloud environment is not configured (missing GCS_BUCKET). "
-            "Set the variable or run `gmake infra-create` (writes `infra/outputs.json`).",
+            "Set the variable or run `gmake terraform-apply` (writes `infra/outputs.json`).",
             exit_code=2,
         )
     raise TalosError(
         "Google Cloud environment is not configured (missing GCS_BUCKET). "
-        "Set the variable, run `gmake infra-create` (writes `infra/outputs.json`), "
+        "Set the variable, run `gmake terraform-apply` (writes `infra/outputs.json`), "
         "or pass --bucket / --local-only.",
         exit_code=2,
     )
@@ -287,7 +287,7 @@ def run_generate(
             if config.fail_if_missing_gcs or config.gcs_only:
                 raise TalosError(
                     "Google Cloud environment is not configured (missing GCS_BUCKET). "
-                    "Set the variable, run `gmake infra-create` (writes `infra/outputs.json`), "
+                    "Set the variable, run `gmake terraform-apply` (writes `infra/outputs.json`), "
                     "or pass --bucket / --local-only.",
                     exit_code=2,
                 )
