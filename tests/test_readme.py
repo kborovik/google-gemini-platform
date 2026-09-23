@@ -17,7 +17,6 @@ def test_readme_is_hiring_manager_not_runbook() -> None:
     lowered = text.lower()
     assert "talos" not in lowered
     assert _RAG_WORD.search(text) is None
-    assert "text-embedding-005" not in lowered
     assert "```bash" not in text
     assert "gmake " not in text
     assert "uv run" not in text

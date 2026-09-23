@@ -1,12 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from docgen.constants import (
-    DEFAULT_CHAT_MODEL,
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_EMBEDDING_PUBLISHER_MODEL,
-)
+from docgen.constants import DEFAULT_CHAT_MODEL
 from docgen.env import repo_root
 from docgen.gemini import (
     aiplatform_root,
@@ -27,13 +25,51 @@ def test_regional_workload_publishes_model_on_global() -> None:
     )
 
 
+_EMBEDDING_ID = "text-embedding-" + "005"
+_SCOPE_DIRS = ("src", "agents", "tests", "infra", "docs")
+_SCOPE_FILES = (
+    "README.md",
+    "CHANGELOG.md",
+    "Makefile",
+    "pyproject.toml",
+    "changelog",
+)
+_SKIP_PARTS = {
+    ".venv",
+    "__pycache__",
+    ".git",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".terraform",
+}
+
+
 def test_default_model_ids() -> None:
     assert DEFAULT_CHAT_MODEL == "gemini-3.8-flash"
-    assert DEFAULT_EMBEDDING_MODEL == "text-embedding-005"
-    assert (
-        DEFAULT_EMBEDDING_PUBLISHER_MODEL
-        == "publishers/google/models/text-embedding-005"
-    )
+    source = (repo_root() / "src/docgen/constants.py").read_text(encoding="utf-8")
+    assert "EMBEDDING" not in source
+
+
+def test_embedding_model_id_absent_outside_spec() -> None:
+    root = repo_root()
+    paths: list[Path] = []
+    for name in _SCOPE_DIRS:
+        paths.extend(path for path in (root / name).rglob("*") if path.is_file())
+    for name in _SCOPE_FILES:
+        candidate = root / name
+        if candidate.is_file():
+            paths.append(candidate)
+    hits: list[str] = []
+    for path in paths:
+        if path.name == "SPEC.md" or any(part in _SKIP_PARTS for part in path.parts):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if _EMBEDDING_ID in text:
+            hits.append(str(path.relative_to(root)))
+    assert hits == []
 
 
 def test_explicit_publish_locations_keep_their_hosts() -> None:

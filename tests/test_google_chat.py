@@ -295,7 +295,6 @@ def test_handler_holds_no_policy_text() -> None:
         "credit-policy-agent.instructions",
         "facts.yaml",
         "generateContent",
-        "text-embedding-005",
         "Policy ID",
         "That is not in the published policies",
     ):

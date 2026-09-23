@@ -3,8 +3,6 @@ DEFAULT_APPLICATION_CONTAINER = "client-applications"
 DEFAULT_APPLICATION_FIXTURES_RELATIVE = "tests/fixtures/client-applications"
 DEFAULT_CORPUS = "kb-credit-policies"
 DEFAULT_CHAT_MODEL = "gemini-3.8-flash"
-DEFAULT_EMBEDDING_MODEL = "text-embedding-005"
-DEFAULT_EMBEDDING_PUBLISHER_MODEL = "publishers/google/models/text-embedding-005"
 DEFAULT_INSTRUCTIONS_RELATIVE = (
     "agents/credit_officer/credit-policy-agent.instructions.md"
 )

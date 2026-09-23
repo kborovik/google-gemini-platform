@@ -89,6 +89,5 @@ def test_v7_chat_model_does_not_set_embeddings() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(package.glob("*.py"))
     )
-    assert "text-embedding-005" not in source
     assert "outputs.json" not in source
     assert "pyproject.toml" not in source
