@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from talos.google_chat import ChatHandlerConfig, RestAgentRuntime, handle_chat_event
+from docgen.google_chat import ChatHandlerConfig, RestAgentRuntime, handle_chat_event
 
 pytestmark = [pytest.mark.teams, pytest.mark.timeout(300)]
 

@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from talos.constants import (
+from docgen.constants import (
     CORPUS_IDS,
     DEFAULT_GOLDEN_LAYERS,
     GOLDEN_QUERY_IDS,
@@ -16,7 +16,7 @@ from talos.constants import (
     TEAMS_CHECKLIST_QUERY_IDS,
     WATERMARK,
 )
-from talos.env import repo_root
+from docgen.env import repo_root
 from tests.helpers import (
     BANNED_BANK_NAMES,
     fact_value_cases,

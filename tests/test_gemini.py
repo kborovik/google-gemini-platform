@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from talos.constants import (
+from docgen.constants import (
     DEFAULT_CHAT_MODEL,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_EMBEDDING_PUBLISHER_MODEL,
 )
-from talos.env import repo_root
-from talos.gemini import (
+from docgen.env import repo_root
+from docgen.gemini import (
     aiplatform_root,
     generate_content_url,
     model_publish_location,
 )
-from talos.rest import RestResponse
+from docgen.rest import RestResponse
 
 pytestmark = pytest.mark.unit
 
@@ -52,8 +52,8 @@ def test_explicit_publish_locations_keep_their_hosts() -> None:
 
 
 def test_chat_and_application_post_on_global_for_a_regional_workload() -> None:
-    from talos.application import GeminiChatCompleter
-    from talos.chat import ChatConfig, GeminiChatModel
+    from docgen.application import GeminiChatCompleter
+    from docgen.chat import ChatConfig, GeminiChatModel
 
     class RecordingRest:
         def __init__(self) -> None:
@@ -102,10 +102,10 @@ def test_chat_and_application_post_on_global_for_a_regional_workload() -> None:
 
 
 def test_generate_retries_resource_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
-    from talos.chat import ChatConfig, GeminiChatModel
+    from docgen.chat import ChatConfig, GeminiChatModel
 
     slept: list[float] = []
-    monkeypatch.setattr("talos.chat.time.sleep", lambda seconds: slept.append(seconds))
+    monkeypatch.setattr("docgen.chat.time.sleep", lambda seconds: slept.append(seconds))
 
     class FlakyRest:
         def __init__(self) -> None:
@@ -154,7 +154,7 @@ def test_generate_retries_resource_exhausted(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_workload_region_does_not_remap_to_us_east5() -> None:
-    text = (repo_root() / "src/talos/gemini.py").read_text(encoding="utf-8")
+    text = (repo_root() / "src/docgen/gemini.py").read_text(encoding="utf-8")
     assert "us-east5" not in text
     assert "ragCorpora" not in text
     assert model_publish_location("us-east1") == "global"

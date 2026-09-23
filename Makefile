@@ -65,12 +65,12 @@ check: .venv ## Check Python code
 
 generate: .venv ## Generate sample client applications locally
 	$(call header,Generating client applications)
-	$(UV) run talos generate application --all
+	$(UV) run docgen generate application --all
 
 deploy: .venv infra-create ## Upload corpora to the document bucket
 	$(call need-terraform)
 	$(call header,Uploading credit-policy corpus)
-	$(UV) run talos deploy
+	$(UV) run docgen upload
 
 # GNU make rejects `gmake index --wait` because a dashed word is an option.
 # `gmake index wait=1` and `gmake -- index --wait` poll indexed counts.
@@ -83,7 +83,7 @@ endif
 
 index: .venv ## Ensure the Agent Search data store and import both prefixes
 	$(call header,Indexing Agent Search data store)
-	$(UV) run python -m talos.search_index $(if $(wait),--wait,)
+	$(UV) run python -m docgen.search_index $(if $(wait),--wait,)
 
 preflight: .venv
 	$(call need-gcloud)
@@ -107,7 +107,7 @@ e2e: check preflight infra-create generate deploy ## infra-create + generate + u
 
 clean: ## Remove caches and bytecode
 	$(call header,Cleaning)
-	rm -rf .ruff_cache .pytest_cache dist build src/talos.egg-info *.egg-info $(call rwildcard,,__pycache__)
+	rm -rf .ruff_cache .pytest_cache dist build src/docgen.egg-info *.egg-info $(call rwildcard,,__pycache__)
 	rm -f .release-notes $(call rwildcard,,*.pyc) $(call rwildcard,,.DS_Store)
 
 ##@ Infrastructure:

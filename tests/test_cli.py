@@ -5,18 +5,19 @@ import tomllib
 import pytest
 from click.testing import CliRunner
 
-from talos.cli import cli
-from talos.env import repo_root
+from docgen.cli import cli
+from docgen.env import repo_root
 
 pytestmark = pytest.mark.unit
 
 
-def test_root_help_lists_generate_deploy_and_chat() -> None:
+def test_root_help_lists_generate_and_upload_only() -> None:
     result = CliRunner().invoke(cli, ["--help"])
     assert result.exit_code == 0
-    for name in ("generate", "deploy", "chat"):
+    for name in ("generate", "upload"):
         assert name in result.output
-    assert "publish" not in result.output
+    for name in ("deploy", "chat", "publish"):
+        assert name not in result.output
 
 
 def test_bare_generate_prints_help_exit_2() -> None:
@@ -26,40 +27,42 @@ def test_bare_generate_prints_help_exit_2() -> None:
     assert "application" in result.output
 
 
-def test_deploy_dry_run_prints_plan(
+def test_upload_dry_run_prints_both_prefixes(
     clean_gcp_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "lab5-gemini-dev1")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-east1")
     monkeypatch.setenv("GCS_BUCKET", "lab5-gemini-dev1-credit-docs")
-    result = CliRunner().invoke(cli, ["deploy", "--dry-run", "--no-terraform"])
+    result = CliRunner().invoke(cli, ["upload", "--dry-run", "--no-terraform"])
     assert result.exit_code == 0, result.output
-    assert "dry-run" in result.output
-    assert "kb-credit-policies" in result.output
+    assert "credit-policies" in result.output
+    assert "client-applications" in result.output
+    assert "import" not in result.output.lower()
 
 
-def test_deploy_missing_env_exits_2(clean_gcp_env: None) -> None:
-    result = CliRunner().invoke(cli, ["deploy", "--no-terraform"])
+def test_upload_missing_env_exits_2(clean_gcp_env: None) -> None:
+    result = CliRunner().invoke(cli, ["upload", "--no-terraform"])
     assert result.exit_code == 2
     assert "GOOGLE_CLOUD_PROJECT" in result.output
 
 
-def test_chat_missing_project_exits_2(clean_gcp_env: None) -> None:
-    result = CliRunner().invoke(cli, ["chat", "--no-terraform", "What is max LTV?"])
-    assert result.exit_code == 2
-    assert "GOOGLE_CLOUD_PROJECT" in result.output
+def test_deploy_and_chat_are_not_commands(clean_gcp_env: None) -> None:
+    for name in ("deploy", "chat"):
+        result = CliRunner().invoke(cli, [name, "--no-terraform"])
+        assert result.exit_code != 0
+        assert "no such command" in result.output.lower()
 
 
 def test_version_option() -> None:
     result = CliRunner().invoke(cli, ["--version"])
     assert result.exit_code == 0
-    assert "talos" in result.output
+    assert "docgen" in result.output
 
 
 def test_completion_emits_click_source() -> None:
     result = CliRunner().invoke(cli, ["--completion", "fish"])
     assert result.exit_code == 0
-    assert "complete" in result.output.lower() or "_TALOS_COMPLETE" in result.output
+    assert "complete" in result.output.lower() or "_DOCGEN_COMPLETE" in result.output
 
 
 def test_completion_unknown_shell_is_usage_error() -> None:
@@ -67,9 +70,10 @@ def test_completion_unknown_shell_is_usage_error() -> None:
     assert result.exit_code != 0
 
 
-def test_pyproject_talos_cli_contract() -> None:
+def test_pyproject_docgen_cli_contract() -> None:
     data = tomllib.loads((repo_root() / "pyproject.toml").read_text(encoding="utf-8"))
-    assert data["project"]["scripts"]["talos"] == "talos.cli:cli"
+    assert data["project"]["scripts"]["docgen"] == "docgen.cli:cli"
+    assert "talos" not in data["project"]["scripts"]
     assert data["project"]["requires-python"] == ">=3.14"
 
 

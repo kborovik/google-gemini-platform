@@ -7,14 +7,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, TextIO
 
-from talos.constants import (
+from docgen.constants import (
     DEFAULT_CHAT_MODEL,
     DEFAULT_CORPUS,
     DEFAULT_INSTRUCTIONS_RELATIVE,
 )
-from talos.env import repo_root
-from talos.errors import TalosError
-from talos.gemini import candidate_text, generate_content_url
+from docgen.env import repo_root
+from docgen.errors import TalosError
+from docgen.gemini import candidate_text, generate_content_url
 
 CHAT_TIMEOUT_SECONDS = 180.0
 GENERATE_RETRY_DELAYS = (2.0, 4.0, 8.0)
@@ -193,7 +193,7 @@ def run_chat(
 
 
 def _default_model(config: ChatConfig) -> GeminiChatModel:
-    from talos.rest import RequestsRest
+    from docgen.rest import RequestsRest
 
     return GeminiChatModel(RequestsRest(), config)
 

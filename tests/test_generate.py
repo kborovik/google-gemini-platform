@@ -7,11 +7,11 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from talos.cli import cli
-from talos.constants import CORPUS_IDS, WATERMARK
-from talos.env import repo_root
-from talos.errors import TalosError
-from talos.generate import (
+from docgen.cli import cli
+from docgen.constants import CORPUS_IDS, WATERMARK
+from docgen.env import repo_root
+from docgen.errors import TalosError
+from docgen.generate import (
     GenerateConfig,
     first_visible_line,
     load_and_validate_facts,
@@ -244,7 +244,7 @@ def test_bucket_deploy_purpose_omits_local_only_hint() -> None:
 
 
 def test_gcs_store_uses_prefix_and_sha_metadata() -> None:
-    from talos.generate import GcsObjectStore
+    from docgen.generate import GcsObjectStore
 
     class Blob:
         def __init__(self) -> None:
@@ -415,7 +415,7 @@ def test_local_only_does_not_open_blob_store(
     called: list[str] = []
     monkeypatch.setenv("GCS_BUCKET", "lab5-gemini-dev1-credit-docs")
     monkeypatch.setattr(
-        "talos.generate.open_blob_store",
+        "docgen.generate.open_blob_store",
         lambda *args, **kwargs: called.append("opened") or FakeBlobStore(),
     )
     out = tmp_path / "out"
@@ -450,7 +450,7 @@ def test_cli_generate_uploads_when_azure_configured(
 ) -> None:
     store = FakeBlobStore()
     monkeypatch.setenv("GCS_BUCKET", "lab5-gemini-dev1-credit-docs")
-    monkeypatch.setattr("talos.generate.open_blob_store", lambda *a, **k: store)
+    monkeypatch.setattr("docgen.generate.open_blob_store", lambda *a, **k: store)
     out = tmp_path / "credit-policies"
     result = CliRunner().invoke(
         cli,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from talos.constants import APPLICATION_TYPES, REFUSAL_SENTENCE
+from docgen.constants import APPLICATION_TYPES, REFUSAL_SENTENCE
 from tests.live_support import (
     assert_expected_decision,
     assert_policy_citations,

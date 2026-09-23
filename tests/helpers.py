@@ -7,8 +7,8 @@ from typing import Any
 
 import yaml
 
-from talos.env import repo_root
-from talos.generate import first_visible_line
+from docgen.env import repo_root
+from docgen.generate import first_visible_line
 
 GOLDEN_RELATIVE = "tests/fixtures/golden_queries.yaml"
 FACTS_RELATIVE = "corpus/facts.yaml"
@@ -90,7 +90,7 @@ def policies_dir(root: Path | None = None) -> Path:
 
 
 def load_application_fixtures(root: Path | None = None) -> list[dict[str, Any]]:
-    from talos.application import iter_manifest_documents, parse_application_markdown
+    from docgen.application import iter_manifest_documents, parse_application_markdown
 
     base = (root or repo_root()) / APPLICATION_FIXTURES_RELATIVE
     manifest_path = base / "manifest.json"

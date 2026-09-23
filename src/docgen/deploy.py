@@ -4,17 +4,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from talos.application import seed_application_fixtures
-from talos.constants import (
+from docgen.application import seed_application_fixtures
+from docgen.constants import (
     DEFAULT_APPLICATION_CONTAINER,
     DEFAULT_APPLICATION_FIXTURES_RELATIVE,
     DEFAULT_APPLICATION_OUTPUT_RELATIVE,
     DEFAULT_CONTAINER,
-    DEFAULT_CORPUS,
     DEFAULT_OUTPUT_RELATIVE,
 )
-from talos.env import repo_root
-from talos.generate import BlobStore, open_blob_store, sync_markdown_directory
+from docgen.env import repo_root
+from docgen.generate import BlobStore, open_blob_store, sync_markdown_directory
 
 Echo = Callable[[str], None]
 
@@ -24,14 +23,11 @@ class DeployConfig:
     project: str
     location: str
     bucket: str
-    corpus_display_name: str = DEFAULT_CORPUS
     policy_dir: Path | None = None
     application_dir: Path | None = None
     application_fixtures_dir: Path | None = None
     policy_prefix: str = DEFAULT_CONTAINER
     application_prefix: str = DEFAULT_APPLICATION_CONTAINER
-    wait: bool = False
-    skip_import: bool = False
     dry_run: bool = False
     force: bool = False
 
@@ -82,13 +78,6 @@ def run_deploy(
             "dry-run: would upload "
             + gcs_prefix_uri(config.bucket, config.application_prefix)
         )
-        if config.skip_import:
-            echo("dry-run: skipping data store import")
-        else:
-            echo(
-                "dry-run: index is `gmake index` "
-                f"for data store {config.corpus_display_name}"
-            )
         return
 
     seeded = seed_application_fixtures(application_dir, fixture_dir)
@@ -110,16 +99,3 @@ def run_deploy(
             store, directory, force=config.force, echo=echo
         )
         echo(f"blob-sync {prefix}: uploaded {uploaded}")
-
-    if config.skip_import:
-        echo("skipping data store import")
-        return
-    if config.wait:
-        echo(
-            "uploaded; index with `gmake index wait=1` "
-            f"for data store {config.corpus_display_name}"
-        )
-    else:
-        echo(
-            f"uploaded; index with `gmake index` for data store {config.corpus_display_name}"
-        )

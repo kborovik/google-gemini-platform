@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Protocol
 
-from talos.env import resolve_env
-from talos.errors import TalosError
-from talos.rest import RestClient, raise_for_status
+from docgen.env import resolve_env
+from docgen.errors import TalosError
+from docgen.rest import RestClient, raise_for_status
 
 CLASS_METHOD = "async_stream_query"
 STREAM_QUERY_TIMEOUT = 180.0
@@ -101,7 +101,7 @@ class RestAgentRuntime:
 
     def stream_query(self, *, user_id: str, session_id: str, message: str) -> str:
         if self._client is None:
-            from talos.rest import RequestsRest
+            from docgen.rest import RequestsRest
 
             self._client = RequestsRest()
         response = self._client.request(

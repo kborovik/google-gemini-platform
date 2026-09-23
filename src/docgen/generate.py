@@ -18,13 +18,13 @@ from jinja2 import (
     TemplateNotFound,
 )
 
-from talos.constants import (
+from docgen.constants import (
     CORPUS_IDS,
     DEFAULT_CONTAINER,
     WATERMARK,
 )
-from talos.env import gcs_generate_configured, resolve_generate_env
-from talos.errors import TalosError
+from docgen.env import gcs_generate_configured, resolve_generate_env
+from docgen.errors import TalosError
 
 MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8"
 

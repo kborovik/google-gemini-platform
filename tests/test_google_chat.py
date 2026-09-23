@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from talos.env import repo_root, resolve_env
-from talos.errors import TalosError
-from talos.google_chat import (
+from docgen.env import repo_root, resolve_env
+from docgen.errors import TalosError
+from docgen.google_chat import (
     CLASS_METHOD,
     STREAM_QUERY_TIMEOUT,
     ChatHandlerConfig,
@@ -22,7 +22,7 @@ from talos.google_chat import (
     session_id,
     stream_query_url,
 )
-from talos.rest import RestResponse
+from docgen.rest import RestResponse
 
 pytestmark = pytest.mark.unit
 
@@ -269,7 +269,7 @@ def test_outputs_supply_reasoning_engine(
         "REASONING_ENGINE",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr("talos.env.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("docgen.env.repo_root", lambda: tmp_path)
     infra = tmp_path / "infra"
     infra.mkdir()
     resource = "projects/lab5-gemini-dev1/locations/us-east1/reasoningEngines/9"
@@ -290,7 +290,7 @@ def test_outputs_supply_reasoning_engine(
 
 
 def test_handler_holds_no_policy_text() -> None:
-    source = (repo_root() / "src/talos/google_chat.py").read_text(encoding="utf-8")
+    source = (repo_root() / "src/docgen/google_chat.py").read_text(encoding="utf-8")
     for needle in (
         "credit-policy-agent.instructions",
         "facts.yaml",

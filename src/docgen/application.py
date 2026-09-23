@@ -13,8 +13,8 @@ from typing import Any, Protocol
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateError
 
-from talos.chat import GENERATE_RETRY_DELAYS
-from talos.constants import (
+from docgen.chat import GENERATE_RETRY_DELAYS
+from docgen.constants import (
     APPLICATION_DISCLAIMER_PHRASES,
     APPLICATION_FILENAME_TEMPLATE,
     APPLICATION_ID_RE,
@@ -38,14 +38,14 @@ from talos.constants import (
     SLOT_PRODUCT_FAMILY,
     WATERMARK,
 )
-from talos.env import (
+from docgen.env import (
     gcs_generate_configured,
     repo_root,
     resolve_env,
     resolve_generate_env,
 )
-from talos.errors import TalosError
-from talos.generate import BlobStore, first_visible_line, open_blob_store
+from docgen.errors import TalosError
+from docgen.generate import BlobStore, first_visible_line, open_blob_store
 
 Echo = Callable[[str], None]
 
@@ -142,7 +142,7 @@ class GeminiChatCompleter:
         self._model = model
 
     def complete(self, *, messages: list[dict[str, str]]) -> str:
-        from talos.gemini import candidate_text, generate_content_url
+        from docgen.gemini import candidate_text, generate_content_url
 
         system = "\n\n".join(
             message["content"]
@@ -1304,6 +1304,6 @@ def _jinja_env(directory: Path) -> Environment:
 
 
 def _default_completer(project: str, location: str, model: str) -> GeminiChatCompleter:
-    from talos.rest import RequestsRest
+    from docgen.rest import RequestsRest
 
     return GeminiChatCompleter(RequestsRest(), project, location, model)

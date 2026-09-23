@@ -10,13 +10,13 @@ from typing import Any
 
 import pytest
 
-from talos.application import parse_application_markdown
-from talos.chat import ChatConfig, GeminiChatModel, load_instructions
-from talos.constants import DEFAULT_CHAT_MODEL, DEFAULT_CORPUS
-from talos.env import repo_root
-from talos.errors import TalosError
-from talos.rest import RequestsRest, RestResponse, raise_for_status
-from talos.search_index import data_store_resource, search_url
+from docgen.application import parse_application_markdown
+from docgen.chat import ChatConfig, GeminiChatModel, load_instructions
+from docgen.constants import DEFAULT_CHAT_MODEL, DEFAULT_CORPUS
+from docgen.env import repo_root
+from docgen.errors import TalosError
+from docgen.rest import RequestsRest, RestResponse, raise_for_status
+from docgen.search_index import data_store_resource, search_url
 from tests.helpers import APPLICATION_FIXTURES_RELATIVE, APPLICATION_OUTPUT_RELATIVE
 
 
@@ -113,7 +113,7 @@ def _raise_or_fail(response: RestResponse, action: str) -> None:
 
 
 def _cases_from_dir(base: Path, *, fixture: bool) -> list[dict[str, Any]]:
-    from talos.application import iter_manifest_documents
+    from docgen.application import iter_manifest_documents
 
     manifest_path = base / "manifest.json"
     if not manifest_path.is_file():

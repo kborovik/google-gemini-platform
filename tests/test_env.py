@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from talos.env import fill_missing, parse_terraform_output, resolve_env
+from docgen.env import fill_missing, parse_terraform_output, resolve_env
 
 pytestmark = pytest.mark.unit
 
@@ -36,7 +36,7 @@ def test_no_terraform_ignores_outputs_file(
 ) -> None:
     monkeypatch.delenv("GCS_BUCKET", raising=False)
     monkeypatch.setattr(
-        "talos.env.repo_root",
+        "docgen.env.repo_root",
         lambda: tmp_path,
     )
     infra = tmp_path / "infra"

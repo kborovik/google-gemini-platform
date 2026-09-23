@@ -4,9 +4,9 @@ from typing import Any
 
 import pytest
 
-from talos.constants import REQUIRED_ENV
-from talos.env import fill_missing, load_terraform_output
-from talos.env import repo_root as find_repo_root
+from docgen.constants import REQUIRED_ENV
+from docgen.env import fill_missing, load_terraform_output
+from docgen.env import repo_root as find_repo_root
 from tests.helpers import load_facts, load_golden_queries, load_manifest
 
 _GCP_ENV_NAMES = (
@@ -66,7 +66,7 @@ def clean_azure_env(clean_gcp_env: None) -> None:
 
 @pytest.fixture(scope="session")
 def live_env() -> dict[str, str]:
-    from talos.env import missing_required, resolve_env
+    from docgen.env import missing_required, resolve_env
 
     env = resolve_env(use_terraform=True)
     missing = missing_required(env)

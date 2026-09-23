@@ -1,4 +1,4 @@
-from talos.cli import cli
+from docgen.cli import cli
 
 if __name__ == "__main__":
     cli()

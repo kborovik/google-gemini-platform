@@ -6,8 +6,8 @@ from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
 
-from talos.constants import CANONICAL_ENV, REQUIRED_ENV
-from talos.errors import TalosError
+from docgen.constants import CANONICAL_ENV, REQUIRED_ENV
+from docgen.errors import TalosError
 
 OUTPUTS_JSON_RELATIVE = "infra/outputs.json"
 

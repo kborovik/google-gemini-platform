@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from talos.constants import MIN_APPLICATION_INDEXED_ITEMS, MIN_INDEXED_ITEMS
-from talos.errors import TalosError
-from talos.search_index import (
+from docgen.constants import MIN_APPLICATION_INDEXED_ITEMS, MIN_INDEXED_ITEMS
+from docgen.errors import TalosError
+from docgen.search_index import (
     DATA_STORE_LOCATION,
     IndexConfig,
     data_store_body,

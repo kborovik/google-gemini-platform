@@ -5,7 +5,7 @@ from typing import Any, Protocol
 
 import requests
 
-from talos.errors import TalosError
+from docgen.errors import TalosError
 
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 

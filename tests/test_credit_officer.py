@@ -16,8 +16,8 @@ from agents.credit_officer.agent import (
     load_root_agent,
     resolve_data_store_id,
 )
-from talos.constants import DEFAULT_CHAT_MODEL
-from talos.env import repo_root
+from docgen.constants import DEFAULT_CHAT_MODEL
+from docgen.env import repo_root
 
 pytestmark = pytest.mark.unit
 

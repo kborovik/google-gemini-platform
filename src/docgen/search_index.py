@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
-from talos.constants import (
+from docgen.constants import (
     DEFAULT_APPLICATION_CONTAINER,
     DEFAULT_APPLICATION_OUTPUT_RELATIVE,
     DEFAULT_CONTAINER,
@@ -18,10 +18,10 @@ from talos.constants import (
     POLL_INTERVAL_SECONDS,
     WAIT_TIMEOUT_SECONDS,
 )
-from talos.deploy import local_corpus_size, split_counts
-from talos.env import repo_root, require_env, resolve_env
-from talos.errors import TalosError
-from talos.rest import RestClient, raise_for_status
+from docgen.deploy import local_corpus_size, split_counts
+from docgen.env import repo_root, require_env, resolve_env
+from docgen.errors import TalosError
+from docgen.rest import RestClient, raise_for_status
 
 Echo = Callable[[str], None]
 DATA_STORE_LOCATION = "global"
@@ -338,7 +338,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _default_ops(config: IndexConfig) -> VertexSearchOps:
-    from talos.rest import RequestsRest
+    from docgen.rest import RequestsRest
 
     return VertexSearchOps(RequestsRest(), config.project)
 
@@ -349,14 +349,14 @@ def _assert_local_wait_ready(policy_dir: Path, application_dir: Path) -> int:
     if policies < MIN_INDEXED_ITEMS:
         raise TalosError(
             f"policy corpus has {policies} markdown files; need {MIN_INDEXED_ITEMS}. "
-            "Run `uv run talos generate policy --local-only`.",
+            "Run `uv run docgen generate policy --local-only`.",
             exit_code=1,
         )
     if applications < MIN_APPLICATION_INDEXED_ITEMS:
         raise TalosError(
             f"application corpus has {applications} markdown files; "
             f"need at least {MIN_APPLICATION_INDEXED_ITEMS}. "
-            "Run `uv run talos generate application --all --local-only`.",
+            "Run `uv run docgen generate application --all --local-only`.",
             exit_code=1,
         )
     return applications

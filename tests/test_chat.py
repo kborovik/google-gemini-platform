@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from talos.chat import ChatConfig, TtyWaitIndicator, run_chat
-from talos.errors import TalosError
+from docgen.chat import ChatConfig, TtyWaitIndicator, run_chat
+from docgen.errors import TalosError
 
 pytestmark = pytest.mark.unit
 

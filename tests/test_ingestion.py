@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from talos.constants import (
+from docgen.constants import (
     DEFAULT_APPLICATION_OUTPUT_RELATIVE,
     DEFAULT_CORPUS,
     MIN_APPLICATION_INDEXED_ITEMS,
     MIN_INDEXED_ITEMS,
 )
-from talos.deploy import local_corpus_size, split_counts
-from talos.env import repo_root
-from talos.rest import RequestsRest
-from talos.search_index import VertexSearchOps
+from docgen.deploy import local_corpus_size, split_counts
+from docgen.env import repo_root
+from docgen.rest import RequestsRest
+from docgen.search_index import VertexSearchOps
 
 pytestmark = pytest.mark.ingestion
 

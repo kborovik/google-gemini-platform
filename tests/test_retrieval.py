@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from talos.constants import REFUSAL_SENTENCE
+from docgen.constants import REFUSAL_SENTENCE
 from tests.helpers import load_golden_queries
 from tests.live_support import flatten_retrieve_text, pick_application_case, retrieve
 

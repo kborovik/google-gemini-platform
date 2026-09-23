@@ -1,7 +1,7 @@
 [project]
-name = "talos"
+name = "docgen"
 version = "0.1.0"
-description = "CLI to deploy and test the Contoso Demo Bank credit-policy agent on Gemini Enterprise Agent Platform."
+description = "Generate Contoso Demo Bank credit-policy documents and upload them to Cloud Storage."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-talos = "talos.cli:cli"
+docgen = "docgen.cli:cli"
 
 [build-system]
 requires = ["hatchling"]

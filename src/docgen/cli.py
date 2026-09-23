@@ -1,26 +1,23 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import click
 from click.shell_completion import get_completion_class
 
-from talos import __version__
-from talos.constants import (
+from docgen import __version__
+from docgen.constants import (
     APPLICATION_TYPES,
     DEFAULT_APPLICATION_CONTAINER,
     DEFAULT_APPLICATION_OUTPUT_RELATIVE,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONTAINER,
-    DEFAULT_CORPUS,
     DEFAULT_FACTS_RELATIVE,
-    DEFAULT_INSTRUCTIONS_RELATIVE,
     DEFAULT_OUTPUT_RELATIVE,
     DEFAULT_TEMPLATES_RELATIVE,
 )
-from talos.env import repo_root, require_env, resolve_env
-from talos.errors import TalosError
+from docgen.env import repo_root, require_env, resolve_env
+from docgen.errors import TalosError
 
 _COMPLETION_SHELLS = ("bash", "zsh", "fish", "powershell")
 
@@ -36,8 +33,8 @@ def _emit_completion(
     script = complete_cls(
         cli=ctx.command,
         ctx_args={},
-        prog_name="talos",
-        complete_var="_TALOS_COMPLETE",
+        prog_name="docgen",
+        complete_var="_DOCGEN_COMPLETE",
     ).source()
     click.echo(script, nl=not script.endswith("\n"))
     ctx.exit()
@@ -60,15 +57,15 @@ def _run(action: object) -> None:
     is_eager=True,
     help="Print a completion script for SHELL and exit.",
 )
-@click.version_option(version=__version__, prog_name="talos")
+@click.version_option(version=__version__, prog_name="docgen")
 def cli() -> None:
-    """Generate, deploy, and chat with the credit-policy agent on Gemini Enterprise Agent Platform."""
+    """Generate credit-policy documents and upload them to Cloud Storage."""
 
 
 @cli.group(invoke_without_command=True)
 @click.pass_context
 def generate(ctx: click.Context) -> None:
-    """Render synthetic credit policies or client applications. Does not deploy."""
+    """Render synthetic credit policies or client applications."""
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         raise SystemExit(2)
@@ -120,7 +117,7 @@ def generate_policy(
     no_terraform: bool,
 ) -> None:
     """Render the twelve credit-policy Markdown files from facts.yaml."""
-    from talos.generate import GenerateConfig, run_generate
+    from docgen.generate import GenerateConfig, run_generate
 
     def action() -> None:
         root = repo_root()
@@ -199,7 +196,7 @@ def generate_application_cmd(
     no_terraform: bool,
 ) -> None:
     """Generate opaque synthetic customer filings via Gemini. Hidden operator constraint selects intended_outcome. Does not PUT a knowledge source."""
-    from talos.application import ApplicationGenerateConfig, run_generate_application
+    from docgen.application import ApplicationGenerateConfig, run_generate_application
 
     def action() -> None:
         if force and count is not None:
@@ -254,47 +251,28 @@ def generate_application_cmd(
 )
 @click.option("--bucket", default=None, help="GCS bucket. Default $GCS_BUCKET.")
 @click.option(
-    "--corpus",
-    default=DEFAULT_CORPUS,
-    show_default=True,
-    help="Agent Search data store id. Import is `gmake index`, not this command.",
-)
-@click.option(
-    "--wait",
-    is_flag=True,
-    help="After upload, print the `gmake index wait=1` command.",
-)
-@click.option(
-    "--skip-import",
-    is_flag=True,
-    help="Upload objects and do not mention data store import.",
-)
-@click.option(
     "--force", is_flag=True, help="Re-upload objects even when content_sha256 matches."
 )
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Print the deploy plan without calling Google Cloud.",
+    help="Print the upload plan without calling Google Cloud.",
 )
 @click.option(
     "--no-terraform",
     is_flag=True,
     help="Do not fill missing env vars from `infra/outputs.json`.",
 )
-def deploy(
+def upload(
     project: str | None,
     location: str | None,
     bucket: str | None,
-    corpus: str,
-    wait: bool,
-    skip_import: bool,
     force: bool,
     dry_run: bool,
     no_terraform: bool,
 ) -> None:
-    """Upload both prefixes to Cloud Storage. Does not import the data store."""
-    from talos.deploy import DeployConfig, run_deploy
+    """Hash-skip both prefixes to the bucket. Does not import the data store."""
+    from docgen.deploy import DeployConfig, run_deploy
 
     def action() -> None:
         env = resolve_env(use_terraform=not no_terraform)
@@ -303,104 +281,14 @@ def deploy(
             "GOOGLE_CLOUD_LOCATION": location or env.get("GOOGLE_CLOUD_LOCATION") or "",
             "GCS_BUCKET": bucket or env.get("GCS_BUCKET") or "",
         }
-        if not dry_run:
-            require_env(resolved)
-        elif not all(resolved.values()):
-            require_env(resolved)
+        require_env(resolved)
         config = DeployConfig(
             project=resolved["GOOGLE_CLOUD_PROJECT"],
             location=resolved["GOOGLE_CLOUD_LOCATION"],
             bucket=resolved["GCS_BUCKET"],
-            corpus_display_name=corpus,
-            wait=wait,
-            skip_import=skip_import,
             dry_run=dry_run,
             force=force,
         )
         run_deploy(config, echo=click.echo)
-
-    _run(action)
-
-
-@cli.command()
-@click.option(
-    "--project", default=None, help="GCP project. Default $GOOGLE_CLOUD_PROJECT."
-)
-@click.option(
-    "--location", default=None, help="GCP region. Default $GOOGLE_CLOUD_LOCATION."
-)
-@click.option(
-    "--corpus",
-    default=DEFAULT_CORPUS,
-    show_default=True,
-    help="RAG corpus display name.",
-)
-@click.option("--model", default=DEFAULT_CHAT_MODEL, show_default=True)
-@click.option(
-    "--instructions", "instructions_path", type=click.Path(path_type=Path), default=None
-)
-@click.option(
-    "--dry-run", is_flag=True, help="Print the chat plan without calling Gemini."
-)
-@click.option(
-    "--no-terraform",
-    is_flag=True,
-    help="Do not fill missing env vars from `infra/outputs.json`.",
-)
-@click.argument("question", nargs=-1)
-def chat(
-    project: str | None,
-    location: str | None,
-    corpus: str,
-    model: str,
-    instructions_path: Path | None,
-    dry_run: bool,
-    no_terraform: bool,
-    question: tuple[str, ...],
-) -> None:
-    """Ask the credit-policy agent. One-shot arguments, stdin, or a TTY REPL."""
-    from talos.chat import ChatConfig, load_instructions, run_chat
-
-    def action() -> None:
-        env = resolve_env(use_terraform=not no_terraform)
-        resolved_project = project or env.get("GOOGLE_CLOUD_PROJECT") or ""
-        resolved_location = location or env.get("GOOGLE_CLOUD_LOCATION") or ""
-        if not resolved_project or not resolved_location:
-            missing = [
-                name
-                for name, value in (
-                    ("GOOGLE_CLOUD_PROJECT", resolved_project),
-                    ("GOOGLE_CLOUD_LOCATION", resolved_location),
-                )
-                if not value
-            ]
-            raise TalosError(
-                "Google Cloud environment is not configured (missing "
-                + ", ".join(missing)
-                + "). Set the variables or run `gmake infra-create`.",
-                exit_code=2,
-            )
-        text = " ".join(question).strip()
-        interactive = False
-        if not text:
-            if sys.stdin.isatty():
-                interactive = True
-            else:
-                text = sys.stdin.read().strip()
-        corpus_name = corpus
-        instructions = ""
-        if instructions_path is not None:
-            instructions = instructions_path.read_text(encoding="utf-8")
-        elif not dry_run:
-            instructions = load_instructions(DEFAULT_INSTRUCTIONS_RELATIVE)
-        config = ChatConfig(
-            project=resolved_project,
-            location=resolved_location,
-            corpus_name=corpus_name,
-            model=model,
-            instructions=instructions,
-            dry_run=dry_run,
-        )
-        run_chat(config, text or None, interactive=interactive, echo=click.echo)
 
     _run(action)

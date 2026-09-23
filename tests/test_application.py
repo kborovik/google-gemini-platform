@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from talos.application import (
+from docgen.application import (
     ApplicationGenerateConfig,
     SerialAllocator,
     application_filename,
@@ -25,8 +25,8 @@ from talos.application import (
     validate_filing_markdown,
     validate_record,
 )
-from talos.cli import cli
-from talos.constants import (
+from docgen.cli import cli
+from docgen.constants import (
     APPLICATION_DISCLAIMER_PHRASES,
     APPLICATION_ID_RE,
     APPLICATION_TYPES,
@@ -37,9 +37,9 @@ from talos.constants import (
     SLOT_PRODUCT_FAMILY,
     WATERMARK,
 )
-from talos.env import repo_root
-from talos.errors import TalosError
-from talos.generate import first_visible_line
+from docgen.env import repo_root
+from docgen.errors import TalosError
+from docgen.generate import first_visible_line
 from tests.fakes import FakeBlob, FakeBlobStore
 from tests.helpers import load_application_fixtures
 
@@ -528,7 +528,7 @@ def test_optional_blob_upload_hash_metadata(tmp_path: Path) -> None:
 
 
 def test_generate_application_does_not_put_knowledge_source(tmp_path: Path) -> None:
-    source = (repo_root() / "src/talos/application.py").read_text(encoding="utf-8")
+    source = (repo_root() / "src/docgen/application.py").read_text(encoding="utf-8")
     assert "knowledgesources" not in source
     assert "ks-client-applications" not in source
 

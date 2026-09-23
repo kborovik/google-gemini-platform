@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from talos.constants import DEFAULT_INSTRUCTIONS_RELATIVE, REFUSAL_SENTENCE, WATERMARK
-from talos.env import repo_root
+from docgen.constants import DEFAULT_INSTRUCTIONS_RELATIVE, REFUSAL_SENTENCE, WATERMARK
+from docgen.env import repo_root
 
 pytestmark = pytest.mark.unit
 
