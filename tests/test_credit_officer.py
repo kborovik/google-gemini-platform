@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 from google.adk.tools import AgentTool, VertexAiSearchTool
 
+from agents.credit_officer import agent as credit_officer
 from agents.credit_officer.agent import (
     CHAT_MODEL,
+    INSTRUCTIONS_PATH,
     UNCONFIGURED_DATA_STORE,
     build_credit_officer,
     credit_officer_instruction,
@@ -24,10 +25,6 @@ STORE = (
     "projects/lab5-gemini-dev1/locations/global/"
     "collections/default_collection/dataStores/kb-credit-policies"
 )
-OTHER_STORE = (
-    "projects/lab5-gemini-dev1/locations/global/"
-    "collections/default_collection/dataStores/from-outputs"
-)
 
 
 def _officer_text() -> str:
@@ -37,6 +34,8 @@ def _officer_text() -> str:
 def test_v1_instructions_are_grounded_only() -> None:
     text = _officer_text()
     assert text == load_credit_officer_instructions()
+    assert INSTRUCTIONS_PATH.is_file()
+    assert INSTRUCTIONS_PATH.parent == Path(credit_officer.__file__).resolve().parent
     assert "That is not in the published policies." in text
     assert (
         "Never infer outcome from `application_id`, filename, or `source_name`." in text
@@ -54,16 +53,9 @@ def test_v3_instructions_require_citations() -> None:
     assert "credit-application-{application_id}.md" in text
 
 
-def test_v4_retrieval_agent_is_vertex_ai_search_only(tmp_path: Path) -> None:
-    outputs = tmp_path / "infra"
-    outputs.mkdir()
-    (outputs / "outputs.json").write_text(
-        json.dumps({"DATA_STORE": {"value": OTHER_STORE}}),
-        encoding="utf-8",
-    )
-    assert resolve_data_store_id({}, root=tmp_path) == OTHER_STORE
-    assert resolve_data_store_id({"DATA_STORE": STORE}, root=tmp_path) == STORE
-    assert resolve_data_store_id({}, root=tmp_path / "missing") == ""
+def test_v4_retrieval_agent_is_vertex_ai_search_only() -> None:
+    assert resolve_data_store_id({}) == ""
+    assert resolve_data_store_id({"DATA_STORE": STORE}) == STORE
 
     officer = build_credit_officer(STORE)
     assert officer.name == "InteractiveAgent"
@@ -80,11 +72,9 @@ def test_v4_retrieval_agent_is_vertex_ai_search_only(tmp_path: Path) -> None:
     assert search.data_store_id == STORE
     assert search.search_engine_id is None
 
-    from_env = load_root_agent({"DATA_STORE": STORE}, root=tmp_path)
+    from_env = load_root_agent({"DATA_STORE": STORE})
     assert from_env.tools[0].agent.tools[0].data_store_id == STORE
-    from_outputs = load_root_agent({}, root=tmp_path)
-    assert from_outputs.tools[0].agent.tools[0].data_store_id == OTHER_STORE
-    unset = load_root_agent({}, root=tmp_path / "missing")
+    unset = load_root_agent({})
     assert unset.tools[0].agent.tools[0].data_store_id == UNCONFIGURED_DATA_STORE
     with pytest.raises(ValueError, match="DATA_STORE"):
         build_credit_officer("  ")
@@ -100,3 +90,5 @@ def test_v7_chat_model_does_not_set_embeddings() -> None:
         path.read_text(encoding="utf-8") for path in sorted(package.glob("*.py"))
     )
     assert "text-embedding-005" not in source
+    assert "outputs.json" not in source
+    assert "pyproject.toml" not in source

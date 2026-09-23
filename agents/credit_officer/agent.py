@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -9,8 +8,9 @@ from google.adk.agents import Agent
 from google.adk.tools import AgentTool, VertexAiSearchTool
 
 CHAT_MODEL = "gemini-3.8-flash"
-INSTRUCTIONS_RELATIVE = Path("agents/credit-policy-agent.instructions.md")
-OUTPUTS_JSON_RELATIVE = Path("infra/outputs.json")
+INSTRUCTIONS_PATH = (
+    Path(__file__).resolve().parent / "credit-policy-agent.instructions.md"
+)
 UNCONFIGURED_DATA_STORE = (
     "projects/unset/locations/global/collections/default_collection/dataStores/unset"
 )
@@ -32,17 +32,8 @@ INTERACTIVE_DESCRIPTION = (
 )
 
 
-def repo_root() -> Path:
-    here = Path(__file__).resolve()
-    for parent in (here, *here.parents):
-        if (parent / "pyproject.toml").exists():
-            return parent
-    return Path.cwd()
-
-
-def load_credit_officer_instructions(root: Path | None = None) -> str:
-    path = (root or repo_root()) / INSTRUCTIONS_RELATIVE
-    return path.read_text(encoding="utf-8")
+def load_credit_officer_instructions() -> str:
+    return INSTRUCTIONS_PATH.read_text(encoding="utf-8")
 
 
 def credit_officer_instruction(_ctx: object) -> str:
@@ -51,35 +42,9 @@ def credit_officer_instruction(_ctx: object) -> str:
     return load_credit_officer_instructions()
 
 
-def _output_value(spec: object) -> str:
-    if isinstance(spec, dict) and "value" in spec:
-        spec = spec["value"]
-    if spec is None:
-        return ""
-    return str(spec).strip()
-
-
-def data_store_from_outputs(root: Path | None = None) -> str:
-    path = (root or repo_root()) / OUTPUTS_JSON_RELATIVE
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
-        return ""
-    if not isinstance(data, dict):
-        return ""
-    return _output_value(data.get("DATA_STORE"))
-
-
-def resolve_data_store_id(
-    environ: Mapping[str, str] | None = None,
-    *,
-    root: Path | None = None,
-) -> str:
+def resolve_data_store_id(environ: Mapping[str, str] | None = None) -> str:
     env = os.environ if environ is None else environ
-    configured = env.get("DATA_STORE", "").strip()
-    if configured:
-        return configured
-    return data_store_from_outputs(root)
+    return env.get("DATA_STORE", "").strip()
 
 
 def build_credit_officer(data_store_id: str) -> Agent:
@@ -111,12 +76,8 @@ def build_credit_officer(data_store_id: str) -> Agent:
     )
 
 
-def load_root_agent(
-    environ: Mapping[str, str] | None = None,
-    *,
-    root: Path | None = None,
-) -> Agent:
-    store = resolve_data_store_id(environ, root=root) or UNCONFIGURED_DATA_STORE
+def load_root_agent(environ: Mapping[str, str] | None = None) -> Agent:
+    store = resolve_data_store_id(environ) or UNCONFIGURED_DATA_STORE
     return build_credit_officer(store)
 
 

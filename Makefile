@@ -10,6 +10,8 @@ export PATH := $(abspath .venv)/bin:$(PATH)
 
 UV ?= uv
 export PYTHONUNBUFFERED := 1
+export PYTHONWARNINGS := ignore
+export PYTEST_ADDOPTS := --disable-warnings -W ignore
 
 esc := $(shell printf '\033')
 blue := $(esc)[34m

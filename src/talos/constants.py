@@ -5,7 +5,9 @@ DEFAULT_CORPUS = "kb-credit-policies"
 DEFAULT_CHAT_MODEL = "gemini-3.8-flash"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-005"
 DEFAULT_EMBEDDING_PUBLISHER_MODEL = "publishers/google/models/text-embedding-005"
-DEFAULT_INSTRUCTIONS_RELATIVE = "agents/credit-policy-agent.instructions.md"
+DEFAULT_INSTRUCTIONS_RELATIVE = (
+    "agents/credit_officer/credit-policy-agent.instructions.md"
+)
 DEFAULT_FACTS_RELATIVE = "corpus/facts.yaml"
 DEFAULT_TEMPLATES_RELATIVE = "corpus/templates"
 DEFAULT_OUTPUT_RELATIVE = "data/credit-policies"
