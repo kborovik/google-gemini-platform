@@ -7,16 +7,11 @@ from talos.constants import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_EMBEDDING_PUBLISHER_MODEL,
 )
+from talos.env import repo_root
 from talos.gemini import (
-    RAG_OPEN_LOCATION,
     aiplatform_root,
-    corpus_create_body,
-    embedding_endpoint,
     generate_content_url,
-    import_body,
     model_publish_location,
-    rag_corpora_url,
-    rag_location,
 )
 from talos.rest import RestResponse
 
@@ -158,46 +153,8 @@ def test_generate_retries_resource_exhausted(monkeypatch: pytest.MonkeyPatch) ->
     assert slept == [2.0, 4.0]
 
 
-def test_allowlisted_regions_use_us_east5() -> None:
-    assert rag_location("us-east1") == RAG_OPEN_LOCATION == "us-east5"
-    assert rag_location("us-east4") == "us-east5"
-    assert rag_location("us-central1") == "us-east5"
-    assert rag_location("europe-west4") == "europe-west4"
-
-
-def test_corpus_create_nests_embedding_under_vector_db() -> None:
-    body = corpus_create_body(
-        "kb-credit-policies",
-        "policies",
-        project="lab5-gemini-dev1",
-        location="us-east5",
-    )
-    assert "ragEmbeddingModelConfig" not in body
-    assert body["vectorDbConfig"]["ragManagedDb"] == {}
-    assert body["vectorDbConfig"]["ragEmbeddingModelConfig"] == {
-        "vertexPredictionEndpoint": {
-            "endpoint": embedding_endpoint("lab5-gemini-dev1", "us-east5"),
-        }
-    }
-    assert embedding_endpoint("lab5-gemini-dev1", "us-east5") == (
-        "projects/lab5-gemini-dev1/locations/us-east5/"
-        "publishers/google/models/text-embedding-005"
-    )
-
-
-def test_import_uses_fixed_length_chunking() -> None:
-    body = import_body(
-        ["gs://bucket/credit-policies/"], chunk_size=512, chunk_overlap=100
-    )
-    config = body["importRagFilesConfig"]
-    assert "ragFileChunkingConfig" not in config
-    assert config["ragFileTransformationConfig"]["ragFileChunkingConfig"] == {
-        "fixedLengthChunking": {"chunkSize": 512, "chunkOverlap": 100}
-    }
-
-
-def test_rag_stays_on_the_workload_region() -> None:
-    assert rag_corpora_url("lab5-gemini-dev1", "us-east1") == (
-        "https://us-east1-aiplatform.googleapis.com/v1/projects/lab5-gemini-dev1"
-        "/locations/us-east1/ragCorpora"
-    )
+def test_workload_region_does_not_remap_to_us_east5() -> None:
+    text = (repo_root() / "src/talos/gemini.py").read_text(encoding="utf-8")
+    assert "us-east5" not in text
+    assert "ragCorpora" not in text
+    assert model_publish_location("us-east1") == "global"

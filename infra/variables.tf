@@ -5,5 +5,5 @@ variable "project" {
 
 variable "region" {
   type        = string
-  description = "GCP region for the document bucket and RAG Engine."
+  description = "GCP region for the document bucket and Agent Runtime."
 }

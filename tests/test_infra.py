@@ -9,9 +9,34 @@ from talos.env import repo_root
 pytestmark = pytest.mark.unit
 
 
-def test_rag_engine_tier_is_outside_the_allowlist() -> None:
-    text = (repo_root() / "infra/rag.tf").read_text(encoding="utf-8")
-    assert 'region  = "us-east5"' in text
+def test_terraform_has_no_rag_engine_tier() -> None:
+    infra = repo_root() / "infra"
+    assert not (infra / "rag.tf").exists()
+    text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(infra.glob("*.tf"))
+    )
+    assert "google_vertex_ai_rag_engine_config" not in text
+    assert "us-east5" not in text
+    assert "discoveryengine.googleapis.com" in text
+    assert "aiplatform.googleapis.com" in text
+    assert "storage.googleapis.com" in text
+    assert (
+        "locations/global/collections/default_collection/dataStores/kb-credit-policies"
+        in text
+    )
+    makefile = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "infra-rag-destroy" not in makefile
+    assert "python -m talos.search_index" in makefile
+
+
+def test_terraform_variables_are_only_project_and_region() -> None:
+    text = (repo_root() / "infra/variables.tf").read_text(encoding="utf-8")
+    names = re.findall(r'^variable "([^"]+)"', text, re.M)
+    assert names == ["project", "region"]
+    makefile = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "TF_VAR_FILE := $(PROJECT).tfvars" in makefile
+    assert "-var-file=$(TF_VAR_FILE)" in makefile
+    assert "PROJECT ?= lab5-gemini-dev1" in makefile
 
 
 def test_tfvars_pin_lab5_gemini_dev1() -> None:
@@ -20,18 +45,14 @@ def test_tfvars_pin_lab5_gemini_dev1() -> None:
     assert 'region  = "us-east1"' in text
 
 
-def test_makefile_rag_destroy_targets_only_the_engine() -> None:
+def test_makefile_index_wait_flag() -> None:
     text = (repo_root() / "Makefile").read_text(encoding="utf-8")
-    match = re.search(
-        r"^infra-rag-destroy:[^\n]*\n((?:[ \t].*\n)*)",
-        text,
-        re.M,
-    )
+    match = re.search(r"^index:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
     assert match is not None
     body = match.group(1)
-    assert "terraform -chdir=infra destroy" in body
-    assert "-target=google_vertex_ai_rag_engine_config.basic" in body
-    assert "outputs.json" not in body
+    assert "$(UV) run python -m talos.search_index $(if $(wait),--wait,)" in body
+    assert "us-east5" not in text
+    assert "google_vertex_ai_rag_engine_config" not in text
 
 
 def test_makefile_uses_org_factory_state_bucket() -> None:

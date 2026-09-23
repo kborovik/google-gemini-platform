@@ -257,17 +257,17 @@ def generate_application_cmd(
     "--corpus",
     default=DEFAULT_CORPUS,
     show_default=True,
-    help="RAG corpus display name.",
+    help="Agent Search data store id. Import is `gmake index`, not this command.",
 )
 @click.option(
     "--wait",
     is_flag=True,
-    help="Poll the import until policy and application files are indexed.",
+    help="After upload, print the `gmake index wait=1` command.",
 )
 @click.option(
     "--skip-import",
     is_flag=True,
-    help="Upload objects but do not import into the RAG corpus.",
+    help="Upload objects and do not mention data store import.",
 )
 @click.option(
     "--force", is_flag=True, help="Re-upload objects even when content_sha256 matches."
@@ -293,7 +293,7 @@ def deploy(
     dry_run: bool,
     no_terraform: bool,
 ) -> None:
-    """Upload both corpora to Cloud Storage and import them into one RAG corpus."""
+    """Upload both prefixes to Cloud Storage. Does not import the data store."""
     from talos.deploy import DeployConfig, run_deploy
 
     def action() -> None:
@@ -360,9 +360,6 @@ def chat(
 ) -> None:
     """Ask the credit-policy agent. One-shot arguments, stdin, or a TTY REPL."""
     from talos.chat import ChatConfig, load_instructions, run_chat
-    from talos.deploy import VertexRagOps
-    from talos.gemini import rag_location
-    from talos.rest import RequestsRest
 
     def action() -> None:
         env = resolve_env(use_terraform=not no_terraform)
@@ -391,16 +388,6 @@ def chat(
             else:
                 text = sys.stdin.read().strip()
         corpus_name = corpus
-        if not dry_run and "/ragCorpora/" not in corpus:
-            found = VertexRagOps(
-                RequestsRest(), resolved_project, rag_location(resolved_location)
-            ).find_corpus(corpus)
-            if not found:
-                raise TalosError(
-                    f"RAG corpus {corpus!r} was not found. Run `uv run talos deploy`.",
-                    exit_code=2,
-                )
-            corpus_name = found
         instructions = ""
         if instructions_path is not None:
             instructions = instructions_path.read_text(encoding="utf-8")

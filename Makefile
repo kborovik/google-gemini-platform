@@ -46,9 +46,8 @@ rwildcard = $(strip \
 
 default: help
 
-.PHONY: help test check generate deploy infra preflight e2e clean
+.PHONY: help test check generate deploy index --wait infra preflight e2e clean
 .PHONY: infra-create infra-plan infra-fmt infra-validate infra-show infra-status infra-destroy infra-init
-.PHONY: infra-rag-destroy
 .PHONY: infra-backend-show
 .PHONY: release major minor patch
 .PHONY: _release-pre _release-bump _release-tag _release-gh
@@ -68,10 +67,23 @@ generate: .venv ## Generate sample client applications locally
 	$(call header,Generating client applications)
 	$(UV) run talos generate application --all
 
-deploy: .venv infra-create ## Upload corpora and import the RAG corpus
+deploy: .venv infra-create ## Upload corpora to the document bucket
 	$(call need-terraform)
-	$(call header,Deploying credit-policy corpus)
-	$(UV) run talos deploy --wait
+	$(call header,Uploading credit-policy corpus)
+	$(UV) run talos deploy
+
+# GNU make rejects `gmake index --wait` because a dashed word is an option.
+# `gmake index wait=1` and `gmake -- index --wait` poll indexed counts.
+ifeq ($(filter --wait,$(MAKECMDGOALS)),--wait)
+wait := 1
+endif
+
+--wait:
+	@:
+
+index: .venv ## Ensure the Agent Search data store and import both prefixes
+	$(call header,Indexing Agent Search data store)
+	$(UV) run python -m talos.search_index $(if $(wait),--wait,)
 
 preflight: .venv
 	$(call need-gcloud)
@@ -86,7 +98,9 @@ ifneq ($(filter e2e,$(MAKECMDGOALS)),)
 $(if $(FILE),$(if $(e2e_target),,$(error no test file matches FILE=$(FILE))))
 endif
 
-e2e: check preflight infra-create generate deploy ## infra-create + generate + deploy --wait + live pytest
+e2e: check preflight infra-create generate deploy ## infra-create + generate + upload + index + live pytest
+	$(call header,Indexing Agent Search data store)
+	$(MAKE) index wait=1
 	$(call header,Live e2e)
 	$(UV) run pytest -v -ra -s --durations=0 \
 		-m "ingestion or retrieval or agent" --override-ini addopts= $(e2e_target)
@@ -151,12 +165,6 @@ infra-destroy: infra-init ## terraform destroy workload stack; drop infra/output
 	terraform -chdir=infra destroy -input=false -auto-approve -var-file=$(TF_VAR_FILE)
 	rm -f infra/outputs.json
 
-infra-rag-destroy: infra-init ## stop RAG Engine Spanner billing; keep bucket and service account
-	$(call header,Destroy RAG Engine)
-	terraform -chdir=infra destroy -input=false -auto-approve -var-file=$(TF_VAR_FILE) \
-		-target=google_vertex_ai_rag_engine_config.basic
-	echo "RAG Engine in us-east5 is destroyed. The corpus is deleted. The bucket and service account remain. gmake infra-create turns Basic back on; gmake deploy imports the corpus again."
-
 ##@ Release:
 part := $(firstword $(filter major minor patch,$(MAKECMDGOALS)))
 ifneq ($(filter release,$(MAKECMDGOALS)),)
@@ -205,11 +213,12 @@ help:
 	$(info $(yellow)test$(reset)              unit tests)
 	$(info $(yellow)check$(reset)             ruff + unit tests)
 	$(info $(yellow)generate$(reset)          sample applications, local only)
-	$(info $(yellow)deploy$(reset)            terraform apply + talos deploy --wait)
-	$(info $(yellow)e2e$(reset)               check, apply, generate, deploy, live pytest)
+	$(info $(yellow)deploy$(reset)            terraform apply + upload both prefixes)
+	$(info $(yellow)index$(reset)             ensure data store kb-credit-policies and import)
+	$(info $(yellow)index wait=1$(reset)      poll indexed counts (also: gmake -- index --wait))
+	$(info $(yellow)e2e$(reset)               check, apply, generate, upload, index, live pytest)
 	$(info $(yellow)infra-create$(reset)      terraform apply in $(PROJECT))
 	$(info $(yellow)infra-plan$(reset)        terraform plan)
 	$(info $(yellow)infra-destroy$(reset)     terraform destroy workload stack)
-	$(info $(yellow)infra-rag-destroy$(reset) stop RAG Engine billing; keep the bucket)
 	$(info $(yellow)release$(reset)           gmake release major|minor|patch)
 	:

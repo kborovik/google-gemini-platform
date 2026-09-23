@@ -16,4 +16,14 @@ resource "google_project_iam_member" "agent_aiplatform" {
   project = var.project
   role    = "roles/aiplatform.user"
   member  = google_service_account.agent.member
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_project_iam_member" "agent_discoveryengine" {
+  project = var.project
+  role    = "roles/discoveryengine.viewer"
+  member  = google_service_account.agent.member
+
+  depends_on = [google_project_service.apis]
 }

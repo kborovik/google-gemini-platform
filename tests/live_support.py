@@ -13,74 +13,68 @@ import pytest
 from talos.application import parse_application_markdown
 from talos.chat import ChatConfig, GeminiChatModel, load_instructions
 from talos.constants import DEFAULT_CHAT_MODEL, DEFAULT_CORPUS
-from talos.deploy import VertexRagOps
 from talos.env import repo_root
 from talos.errors import TalosError
-from talos.gemini import aiplatform_root, rag_location
 from talos.rest import RequestsRest, RestResponse, raise_for_status
+from talos.search_index import data_store_resource, search_url
 from tests.helpers import APPLICATION_FIXTURES_RELATIVE, APPLICATION_OUTPUT_RELATIVE
-
-_corpus_name: str | None = None
-
-
-def retrieve_contexts_url(project: str, location: str) -> str:
-    return (
-        f"{aiplatform_root(location)}/projects/{project}/locations/{location}"
-        ":retrieveContexts"
-    )
 
 
 def corpus_name(env: dict[str, str]) -> str:
-    global _corpus_name
-    if _corpus_name:
-        return _corpus_name
-    location = rag_location(env["GOOGLE_CLOUD_LOCATION"])
-    found = VertexRagOps(
-        RequestsRest(), env["GOOGLE_CLOUD_PROJECT"], location
-    ).find_corpus(DEFAULT_CORPUS)
-    if not found:
-        pytest.fail(
-            f"RAG corpus {DEFAULT_CORPUS!r} was not found in {location}. "
-            "Run `uv run talos deploy`."
-        )
-    _corpus_name = found
-    return found
+    return data_store_resource(env["GOOGLE_CLOUD_PROJECT"], DEFAULT_CORPUS)
 
 
 def retrieve(env: dict[str, str], query: str, *, top_k: int = 5) -> dict[str, Any]:
-    location = rag_location(env["GOOGLE_CLOUD_LOCATION"])
     response = RequestsRest().request(
         "POST",
-        retrieve_contexts_url(env["GOOGLE_CLOUD_PROJECT"], location),
-        json_body={
-            "vertexRagStore": {
-                "ragResources": [{"ragCorpus": corpus_name(env)}],
-            },
-            "query": {
-                "text": query,
-                "ragRetrievalConfig": {"topK": top_k},
-            },
-        },
+        search_url(env["GOOGLE_CLOUD_PROJECT"], DEFAULT_CORPUS),
+        json_body={"query": query, "pageSize": top_k},
         timeout=120.0,
     )
-    _raise_or_fail(response, "RAG retrieveContexts")
+    _raise_or_fail(response, "Agent Search")
     body = response.json
     return body if isinstance(body, dict) else {}
 
 
 def flatten_retrieve_text(body: dict[str, Any]) -> str:
+    chunks: list[str] = []
     contexts = body.get("contexts")
     rows = contexts.get("contexts") if isinstance(contexts, dict) else None
-    if not isinstance(rows, list):
-        return ""
-    chunks: list[str] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        for key in ("text", "sourceUri", "sourceDisplayName"):
-            value = row.get(key)
-            if isinstance(value, str) and value:
-                chunks.append(value)
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for key in ("text", "sourceUri", "sourceDisplayName"):
+                value = row.get(key)
+                if isinstance(value, str) and value:
+                    chunks.append(value)
+    results = body.get("results")
+    if isinstance(results, list):
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            chunk = result.get("chunk")
+            if isinstance(chunk, dict) and isinstance(chunk.get("content"), str):
+                chunks.append(chunk["content"])
+            document = result.get("document")
+            if not isinstance(document, dict):
+                continue
+            content = document.get("content")
+            if isinstance(content, dict) and isinstance(content.get("uri"), str):
+                chunks.append(content["uri"])
+            derived = document.get("derivedStructData")
+            if not isinstance(derived, dict):
+                continue
+            for answer in derived.get("extractive_answers") or []:
+                if isinstance(answer, dict) and isinstance(answer.get("content"), str):
+                    chunks.append(answer["content"])
+            snippets = derived.get("snippets")
+            if isinstance(snippets, list):
+                for snippet in snippets:
+                    if isinstance(snippet, dict) and isinstance(
+                        snippet.get("snippet"), str
+                    ):
+                        chunks.append(snippet["snippet"])
     return "\n".join(chunks)
 
 

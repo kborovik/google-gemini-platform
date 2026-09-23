@@ -44,9 +44,9 @@ dev = [
 addopts = "-m unit"
 markers = [
     "unit: corpus contract and CLI tests, no Google Cloud",
-    "ingestion: live Cloud Storage + RAG import status",
-    "retrieval: live RAG retrieve",
-    "agent: live Gemini generateContent with the RAG tool",
+    "ingestion: live Cloud Storage + Agent Search indexed counts",
+    "retrieval: live Agent Search retrieve",
+    "agent: live Gemini generateContent",
     "teams: reserved; Google Chat is not part of v1",
 ]
 testpaths = ["tests"]

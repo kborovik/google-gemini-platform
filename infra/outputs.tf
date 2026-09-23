@@ -17,3 +17,7 @@ output "GCS_URI" {
 output "GOOGLE_AGENT_SERVICE_ACCOUNT" {
   value = google_service_account.agent.email
 }
+
+output "DATA_STORE" {
+  value = "projects/${var.project}/locations/global/collections/default_collection/dataStores/kb-credit-policies"
+}

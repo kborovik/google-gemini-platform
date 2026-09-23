@@ -14,7 +14,7 @@ from talos.constants import (
 )
 from talos.env import repo_root
 from talos.errors import TalosError
-from talos.gemini import candidate_text, generate_content_url, retrieval_tool
+from talos.gemini import candidate_text, generate_content_url
 
 CHAT_TIMEOUT_SECONDS = 180.0
 GENERATE_RETRY_DELAYS = (2.0, 4.0, 8.0)
@@ -115,7 +115,6 @@ class GeminiChatModel:
         body = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": contents,
-            "tools": [retrieval_tool(self._config.corpus_name)],
             "generationConfig": {"temperature": 0},
         }
         delays = iter(GENERATE_RETRY_DELAYS)

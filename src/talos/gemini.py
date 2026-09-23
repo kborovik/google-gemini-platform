@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from talos.constants import DEFAULT_EMBEDDING_PUBLISHER_MODEL
-
 
 _MULTI_REGION_ROOTS = {
     "us": "https://aiplatform.us.rep.googleapis.com/v1",
@@ -18,18 +16,6 @@ def aiplatform_root(location: str) -> str:
     if multi is not None:
         return multi
     return f"https://{location}-aiplatform.googleapis.com/v1"
-
-
-# New projects are not allowlisted for RAG in these regions.
-# us-east5 is the nearest region that accepts a corpus create.
-_RAG_ALLOWLISTED_REGIONS = frozenset({"us-central1", "us-east1", "us-east4"})
-RAG_OPEN_LOCATION = "us-east5"
-
-
-def rag_location(workload_location: str) -> str:
-    if workload_location in _RAG_ALLOWLISTED_REGIONS:
-        return RAG_OPEN_LOCATION
-    return workload_location
 
 
 def model_publish_location(location: str) -> str:
@@ -47,24 +33,6 @@ def generate_content_url(project: str, location: str, model: str) -> str:
     )
 
 
-def rag_corpora_url(project: str, location: str) -> str:
-    return f"{aiplatform_root(location)}/projects/{project}/locations/{location}/ragCorpora"
-
-
-def rag_import_url(corpus_name: str, location: str) -> str:
-    return f"{aiplatform_root(location)}/{corpus_name}/ragFiles:import"
-
-
-def operation_url(location: str, name: str) -> str:
-    if name.startswith("https://"):
-        return name
-    return f"{aiplatform_root(location)}/{name}"
-
-
-def rag_files_url(corpus_name: str, location: str) -> str:
-    return f"{aiplatform_root(location)}/{corpus_name}/ragFiles"
-
-
 def candidate_text(payload: dict[str, Any]) -> str:
     candidates = payload.get("candidates") or []
     if not isinstance(candidates, list) or not candidates:
@@ -79,68 +47,3 @@ def candidate_text(payload: dict[str, Any]) -> str:
         if isinstance(part, dict) and isinstance(part.get("text"), str):
             chunks.append(part["text"])
     return "".join(chunks)
-
-
-def embedding_endpoint(project: str, location: str) -> str:
-    return (
-        f"projects/{project}/locations/{location}/{DEFAULT_EMBEDDING_PUBLISHER_MODEL}"
-    )
-
-
-def corpus_create_body(
-    display_name: str, description: str, *, project: str, location: str
-) -> dict[str, Any]:
-    return {
-        "displayName": display_name,
-        "description": description,
-        "vectorDbConfig": {
-            "ragManagedDb": {},
-            "ragEmbeddingModelConfig": {
-                "vertexPredictionEndpoint": {
-                    "endpoint": embedding_endpoint(project, location),
-                }
-            },
-        },
-    }
-
-
-def import_body(
-    uris: list[str], *, chunk_size: int, chunk_overlap: int
-) -> dict[str, Any]:
-    return {
-        "importRagFilesConfig": {
-            "gcsSource": {"uris": uris},
-            "ragFileTransformationConfig": {
-                "ragFileChunkingConfig": {
-                    "fixedLengthChunking": {
-                        "chunkSize": chunk_size,
-                        "chunkOverlap": chunk_overlap,
-                    }
-                }
-            },
-        }
-    }
-
-
-def retrieval_tool(corpus_name: str) -> dict[str, Any]:
-    return {
-        "retrieval": {
-            "vertexRagStore": {
-                "ragResources": [{"ragCorpus": corpus_name}],
-            }
-        }
-    }
-
-
-def file_uri(rag_file: dict[str, Any]) -> str:
-    for key in ("gcsSource", "gcs_source"):
-        source = rag_file.get(key)
-        if isinstance(source, dict):
-            uris = source.get("uris") or []
-            if isinstance(uris, list) and uris:
-                return str(uris[0])
-    for key in ("displayName", "display_name", "name"):
-        value = rag_file.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return ""
