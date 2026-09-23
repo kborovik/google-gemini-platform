@@ -32,10 +32,11 @@ def test_demo_path_is_chat_and_agent_search() -> None:
     assert "rag corpus" not in lowered
     assert "rag engine" not in lowered
     for phrase in (
-        "gmake terraform-apply",
+        "gmake generate",
         "uv run docgen generate application --all --local-only",
         "gmake deploy",
-        "gmake index wait=1",
+        "docgen upload",
+        "docgen index --wait",
         "adk deploy agent_engine",
         "--project=lab5-gemini-dev1",
         "--region=us-east1",

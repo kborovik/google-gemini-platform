@@ -74,12 +74,24 @@ check: .venv ## Check Python code
 
 generate: .venv ## Generate sample client applications locally
 	$(call header,Generating client applications)
-	$(UV) run docgen generate application --all
+	$(UV) run docgen generate application --all --local-only
 
-deploy: .venv terraform-apply ## Upload corpora to the document bucket
+deploy: .venv terraform-apply ## Apply, set DATA_STORE, upload, index, deploy the agent
 	$(call need-terraform)
+	$(call header,Reading DATA_STORE)
+	data_store=$$(terraform -chdir=$(terraform_dir) output -raw DATA_STORE) && \
+	test -n "$$data_store" && \
+	printf 'DATA_STORE=%s\n' "$$data_store" > $(git_root)/agents/credit_officer/.env && \
+	printf '%s\n' "$$data_store"
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload
+	$(MAKE) index wait=1
+	$(call header,Deploying credit officer)
+	$(UV) run adk deploy agent_engine \
+		--project=$(PROJECT) \
+		--region=$(REGION) \
+		--display_name=credit-officer \
+		agents/credit_officer
 
 # GNU make rejects `gmake index --wait` because a dashed word is an option.
 # `gmake index wait=1` and `gmake -- index --wait` poll indexed counts.
@@ -107,8 +119,9 @@ ifneq ($(filter e2e,$(MAKECMDGOALS)),)
 $(if $(FILE),$(if $(e2e_target),,$(error no test file matches FILE=$(FILE))))
 endif
 
-e2e: check preflight terraform-apply generate deploy ## terraform-apply + generate + upload + index + live pytest
-	$(call header,Indexing Agent Search data store)
+e2e: check preflight generate ## check, apply, generate, upload, index, live pytest
+	$(call header,Uploading credit-policy corpus)
+	$(UV) run docgen upload
 	$(MAKE) index wait=1
 	$(call header,Live e2e)
 	$(UV) run pytest -v -ra -s --durations=0 \
@@ -268,7 +281,7 @@ help:
 	$(info $(yellow)test$(reset)                unit tests)
 	$(info $(yellow)check$(reset)               ruff + unit tests)
 	$(info $(yellow)generate$(reset)            sample applications, local only)
-	$(info $(yellow)deploy$(reset)              terraform apply + upload both prefixes)
+	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait, adk deploy)
 	$(info $(yellow)index$(reset)               ensure data store kb-credit-policies and import)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
 	$(info $(yellow)e2e$(reset)                 check, apply, generate, upload, index, live pytest)

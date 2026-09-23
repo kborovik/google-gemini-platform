@@ -52,6 +52,27 @@ def test_tfvars_pin_lab5_gemini_dev1() -> None:
     assert 'region  = "us-east1"' in text
 
 
+def test_makefile_deploy_applies_uploads_indexes_and_deploys_adk() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    match = re.search(r"^deploy:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert match is not None
+    body = match.group(1)
+    assert "terraform-apply" in match.group(0)
+    assert "output -raw DATA_STORE" in body
+    assert "agents/credit_officer/.env" in body
+    assert "$(UV) run docgen upload" in body
+    assert "$(MAKE) index wait=1" in body
+    assert "adk deploy agent_engine" in body
+    assert "--project=$(PROJECT)" in body
+    assert "--region=$(REGION)" in body
+    assert "--display_name=credit-officer" in body
+    assert "agents/credit_officer" in body
+    generated = re.search(r"^generate:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert generated is not None
+    assert "docgen generate application --all --local-only" in generated.group(1)
+    assert "docgen generate" not in body
+
+
 def test_makefile_index_wait_flag() -> None:
     text = (repo_root() / "Makefile").read_text(encoding="utf-8")
     match = re.search(r"^index:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
