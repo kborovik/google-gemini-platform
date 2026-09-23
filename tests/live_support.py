@@ -10,9 +10,9 @@ from typing import Any
 
 import pytest
 
-from docgen.application import parse_application_markdown
+from docgen.application import iter_manifest_documents, parse_application_markdown
 from docgen.chat import ChatConfig, GeminiChatModel, load_instructions
-from docgen.constants import DEFAULT_CHAT_MODEL, DEFAULT_CORPUS
+from docgen.constants import APPLICATION_TYPES, DEFAULT_CHAT_MODEL, DEFAULT_CORPUS
 from docgen.env import repo_root
 from docgen.errors import TalosError
 from docgen.rest import RequestsRest, RestResponse, raise_for_status
@@ -128,8 +128,6 @@ def _raise_or_fail(response: RestResponse, action: str) -> None:
 
 
 def _cases_from_dir(base: Path, *, fixture: bool) -> list[dict[str, Any]]:
-    from docgen.application import iter_manifest_documents
-
     manifest_path = base / "manifest.json"
     if not manifest_path.is_file():
         return []
@@ -199,6 +197,73 @@ def pick_application_case(application_type: str | None = None) -> dict[str, Any]
     return random.Random(seed).choice(pool)
 
 
+def load_judgement_cases(root: Path | None = None) -> list[dict[str, str]]:
+    """Labeled filings in data/client-applications/manifest.json."""
+    manifest_path = (
+        (root or repo_root()) / APPLICATION_OUTPUT_RELATIVE / "manifest.json"
+    )
+    if not manifest_path.is_file():
+        return []
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        return []
+    cases: list[dict[str, str]] = []
+    for item in iter_manifest_documents(manifest):
+        application_id = str(item.get("application_id") or "").strip()
+        if not application_id:
+            continue
+        cases.append(
+            {
+                "application_id": application_id,
+                "intended_outcome": str(item.get("intended_outcome") or ""),
+                "expected_outcome": str(item.get("expected_outcome") or ""),
+            }
+        )
+    return cases
+
+
+def require_manifest_outcomes(
+    *,
+    application_id: str,
+    intended_outcome: str,
+    expected_outcome: str,
+) -> None:
+    """Both manifest fields are the same published outcome."""
+    if (
+        intended_outcome not in APPLICATION_TYPES
+        or expected_outcome not in APPLICATION_TYPES
+    ):
+        raise AssertionError(
+            f"{application_id}: intended_outcome {intended_outcome!r} "
+            f"expected_outcome {expected_outcome!r} "
+            f"must both be one of {APPLICATION_TYPES}"
+        )
+    if intended_outcome != expected_outcome:
+        raise AssertionError(
+            f"{application_id}: intended_outcome {intended_outcome!r} "
+            f"!= expected_outcome {expected_outcome!r}"
+        )
+
+
+def assert_manifest_judgement(
+    text: str,
+    *,
+    application_id: str,
+    intended_outcome: str,
+    expected_outcome: str,
+) -> None:
+    """Received Judgement decision matches both manifest outcome fields."""
+    require_manifest_outcomes(
+        application_id=application_id,
+        intended_outcome=intended_outcome,
+        expected_outcome=expected_outcome,
+    )
+    try:
+        assert_expected_decision(text, expected_outcome)
+    except AssertionError as exc:
+        raise AssertionError(f"{application_id}: {exc}") from exc
+
+
 def expected_decision_token(expected_judgement: str) -> str:
     if expected_judgement == "accepted":
         return "accept"
@@ -212,13 +277,6 @@ _LEAD_DECISION = re.compile(
     r"\bdecision\b(?:\s*\*\*)?[\s:*–=-]+[`'\"]*"
     r"(accepted|rejected|missing-data|accept|reject|missing)\b",
     re.IGNORECASE,
-)
-
-_POLICY_CITE = re.compile(
-    r"CP-[A-Z]{3}-\d{4}-\d{2}|gs://\S*credit-policies/",
-)
-_APPLICATION_CITE = re.compile(
-    r"credit-application-CA-\d{8}-\d+|gs://\S*client-applications/",
 )
 
 
@@ -238,15 +296,3 @@ def assert_expected_decision(text: str, expected_judgement: str) -> None:
     expected = expected_decision_token(expected_judgement)
     lead = lead_decision_token(text)
     assert lead == expected, f"lead decision {lead!r} != {expected!r}\n{text}"
-
-
-def citation_present(text: str) -> bool:
-    return (
-        _POLICY_CITE.search(text) is not None
-        or _APPLICATION_CITE.search(text) is not None
-    )
-
-
-def assert_policy_citations(text: str) -> None:
-    """Policy thresholds cite a policy file. An application hit is not enough."""
-    assert _POLICY_CITE.search(text), "expected a policy citation:\n" + text

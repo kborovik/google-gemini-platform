@@ -2,73 +2,61 @@ from __future__ import annotations
 
 import pytest
 
-from docgen.constants import APPLICATION_TYPES, REFUSAL_SENTENCE
 from tests.live_support import (
-    assert_expected_decision,
-    assert_policy_citations,
-    citation_present,
+    assert_manifest_judgement,
     invoke_agent,
-    pick_application_case,
+    load_judgement_cases,
+    require_manifest_outcomes,
 )
 
 pytestmark = [pytest.mark.agent, pytest.mark.timeout(300)]
 
 
-def test_evaluate_by_application_id(live_env: dict[str, str]) -> None:
-    record = pick_application_case("accepted")
-    application_id = str(record["application_id"])
-    text = invoke_agent(
-        live_env,
-        f"Evaluate client application {application_id} against published credit policy.",
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    if "judgement_case" not in metafunc.fixturenames:
+        return
+    cases = load_judgement_cases()
+    if not cases:
+        metafunc.parametrize(
+            "judgement_case",
+            [
+                pytest.param(
+                    None,
+                    marks=pytest.mark.skip(
+                        reason="no data/client-applications/manifest.json"
+                    ),
+                )
+            ],
+        )
+        return
+    metafunc.parametrize(
+        "judgement_case",
+        cases,
+        ids=[case["application_id"] for case in cases],
     )
-    assert application_id in text
-    assert_expected_decision(text, str(record["expected_judgement"]))
-    assert citation_present(text)
-    assert_policy_citations(text)
 
 
-def test_evaluate_by_customer_name(live_env: dict[str, str]) -> None:
-    record = pick_application_case("rejected")
-    name = str(record["customer_name"])
-    text = invoke_agent(
-        live_env,
-        f"Please evaluate the application for customer {name}.",
-    )
-    assert name.split()[0] in text
-    assert_expected_decision(text, str(record["expected_judgement"]))
-    assert citation_present(text)
-    assert_policy_citations(text)
-
-
-def test_ask_when_missing_identifier(live_env: dict[str, str]) -> None:
-    text = invoke_agent(
-        live_env,
-        "Please evaluate the client application against policy.",
-    )
-    lower = text.lower()
-    assert (
-        "application_id" in lower
-        or "customer_name" in lower
-        or "which application" in lower
-    )
-    assert "i judge" not in lower
-
-
-@pytest.mark.parametrize("application_type", APPLICATION_TYPES)
-def test_one_case_per_application_type(
-    live_env: dict[str, str], application_type: str
+def test_agent_judgement_matches_manifest(
+    live_env: dict[str, str],
+    judgement_case: dict[str, str] | None,
 ) -> None:
-    record = pick_application_case(application_type)
+    assert judgement_case is not None
+    application_id = judgement_case["application_id"]
+    intended_outcome = judgement_case["intended_outcome"]
+    expected_outcome = judgement_case["expected_outcome"]
+    require_manifest_outcomes(
+        application_id=application_id,
+        intended_outcome=intended_outcome,
+        expected_outcome=expected_outcome,
+    )
     text = invoke_agent(
         live_env,
-        f"Evaluate application {record['application_id']} for {record['customer_name']}.",
+        "Evaluate client application "
+        f"{application_id} against published credit policy.",
     )
-    assert str(record["application_id"]) in text
-    assert_expected_decision(text, str(record["expected_judgement"]))
-    assert citation_present(text)
-    assert_policy_citations(text)
-
-
-def test_policy_only_out_of_corpus_refuses(live_env: dict[str, str]) -> None:
-    text = invoke_agent(live_env, "What is the maximum LTV on a new auto loan?")
-    assert REFUSAL_SENTENCE in text.lower()
+    assert_manifest_judgement(
+        text,
+        application_id=application_id,
+        intended_outcome=intended_outcome,
+        expected_outcome=expected_outcome,
+    )

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from tests.live_support import (
     application_cases,
     assert_expected_decision,
+    assert_manifest_judgement,
     expected_decision_token,
     flatten_retrieve_text,
     lead_decision_token,
+    load_judgement_cases,
     pick_application_case,
     print_agent_turn,
     search_request,
@@ -116,3 +121,66 @@ def test_missing_data_lead_does_not_satisfy_rejected() -> None:
         assert_expected_decision(text, "rejected")
     assert_expected_decision(text, "missing-data")
     assert_expected_decision("Judgement decision: reject. LTV 72%.", "rejected")
+
+
+def test_load_judgement_cases_reads_manifest_outcomes(tmp_path: Path) -> None:
+    base = tmp_path / "data" / "client-applications"
+    base.mkdir(parents=True)
+    (base / "manifest.json").write_text(
+        json.dumps(
+            {
+                "documents": {
+                    "CA-20260115-1768478400000": {
+                        "application_id": "CA-20260115-1768478400000",
+                        "intended_outcome": "accepted",
+                        "expected_outcome": "accepted",
+                        "customer_name": "Helene Voss",
+                    },
+                    "CA-20260220-1771588800000": {
+                        "intended_outcome": "rejected",
+                        "expected_outcome": "rejected",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_judgement_cases(tmp_path) == [
+        {
+            "application_id": "CA-20260115-1768478400000",
+            "intended_outcome": "accepted",
+            "expected_outcome": "accepted",
+        },
+        {
+            "application_id": "CA-20260220-1771588800000",
+            "intended_outcome": "rejected",
+            "expected_outcome": "rejected",
+        },
+    ]
+
+
+def test_load_judgement_cases_missing_manifest(tmp_path: Path) -> None:
+    assert load_judgement_cases(tmp_path) == []
+
+
+def test_assert_manifest_judgement_compares_received_decision() -> None:
+    assert_manifest_judgement(
+        "Judgement decision: reject. LTV 72%.",
+        application_id="CA-20260220-1771588800000",
+        intended_outcome="rejected",
+        expected_outcome="rejected",
+    )
+    with pytest.raises(AssertionError, match="intended_outcome"):
+        assert_manifest_judgement(
+            "decision: reject",
+            application_id="CA-20260220-1771588800000",
+            intended_outcome="accepted",
+            expected_outcome="rejected",
+        )
+    with pytest.raises(AssertionError, match="lead decision"):
+        assert_manifest_judgement(
+            "decision: accept",
+            application_id="CA-20260220-1771588800000",
+            intended_outcome="rejected",
+            expected_outcome="rejected",
+        )

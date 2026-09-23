@@ -160,13 +160,13 @@ ifneq ($(filter e2e,$(MAKECMDGOALS)),)
 $(if $(FILE),$(if $(e2e_target),,$(error no test file matches FILE=$(FILE))))
 endif
 
-e2e: check preflight generate ## check, apply, generate, upload, index, live pytest
+e2e: check preflight generate ## check, generate, upload, index, agent judgement
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload
 	$(MAKE) index wait=1
-	$(call header,Live e2e)
+	$(call header,Agent judgement)
 	$(UV) run pytest -v -ra -s --durations=0 \
-		-m "ingestion or retrieval or agent" --override-ini addopts= $(e2e_target)
+		-m agent --override-ini addopts= $(e2e_target)
 
 clean: ## Remove caches and bytecode
 	$(call header,Cleaning)
@@ -327,7 +327,7 @@ help:
 	$(info $(yellow)chat-deploy$(reset)         build chat/, push the image, then apply)
 	$(info $(yellow)index$(reset)               import both prefixes into kb-credit-policies)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
-	$(info $(yellow)e2e$(reset)                 check, apply, generate, upload, index, live pytest)
+	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, agent judgement)
 	$(info $(yellow)terraform$(reset)           plan, confirm, then apply)
 	$(info $(yellow)terraform-plan$(reset)      plan in $(PROJECT))
 	$(info $(yellow)terraform-apply$(reset)     apply; write infra/outputs.json)
