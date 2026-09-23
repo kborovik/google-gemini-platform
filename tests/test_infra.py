@@ -9,6 +9,13 @@ from docgen.env import repo_root
 pytestmark = pytest.mark.unit
 
 
+def test_reasoning_engine_service_agent_can_impersonate_the_agent() -> None:
+    text = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
+    assert "gcp-sa-aiplatform-re.iam.gserviceaccount.com" in text
+    assert 'role               = "roles/iam.serviceAccountUser"' in text
+    assert 'role               = "roles/iam.serviceAccountTokenCreator"' in text
+
+
 def test_discoveryengine_service_agent_can_stage_imports() -> None:
     text = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
     assert 'role    = "roles/discoveryengine.serviceAgent"' in text
@@ -53,6 +60,8 @@ def test_terraform_creates_empty_agent_search_data_store() -> None:
     assert re.search(r'content_config\s+=\s+"CONTENT_REQUIRED"', body)
     assert re.search(r'solution_types\s+=\s+\["SOLUTION_TYPE_SEARCH"\]', body)
     assert re.search(r"project\s+=\s+var\.project", body)
+    assert "document_processing_config" in body
+    assert "digital_parsing_config" in body
     assert "us-east1" not in body
     assert "us-east5" not in body
     assert "import" not in body
@@ -62,6 +71,12 @@ def test_terraform_creates_empty_agent_search_data_store() -> None:
         r"value = google_discovery_engine_data_store\.kb_credit_policies\.name",
         text,
     )
+
+
+def test_provider_bills_discovery_engine_to_the_workload_project() -> None:
+    text = (repo_root() / "infra/versions.tf").read_text(encoding="utf-8")
+    assert "billing_project       = var.project" in text
+    assert "user_project_override = true" in text
 
 
 def test_terraform_variables_are_only_project_and_region() -> None:
@@ -134,6 +149,7 @@ def test_terraform_deploys_credit_officer_reasoning_engine() -> None:
     assert "source_code_spec" in body
     assert "inline_source" in body
     assert "filebase64(data.archive_file.credit_officer.output_path)" in body
+    assert 'output_file_mode = "0644"' in text
     assert re.search(r'entrypoint_module\s+=\s+"agent"', body)
     assert re.search(r'entrypoint_object\s+=\s+"root_agent"', body)
     assert re.search(r'requirements_file\s+=\s+"requirements.txt"', body)
@@ -158,7 +174,10 @@ def test_terraform_deploys_credit_officer_reasoning_engine() -> None:
     requirements = (repo_root() / "agents/credit_officer/requirements.txt").read_text(
         encoding="utf-8"
     )
-    assert requirements.strip() == "google-adk>=2.9.2,<3"
+    assert [line.strip() for line in requirements.splitlines() if line.strip()] == [
+        "google-adk>=2.9.2,<3",
+        "google-cloud-aiplatform[agent_engines]>=1.128.0,<2",
+    ]
     methods = re.findall(
         r'\bname\s+=\s+"([^"]+)"\s+api_mode\s+=\s+"([^"]*)"',
         text,

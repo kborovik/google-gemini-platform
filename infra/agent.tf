@@ -152,8 +152,9 @@ locals {
 }
 
 data "archive_file" "credit_officer" {
-  type        = "tar.gz"
-  output_path = "${path.module}/build/credit_officer.tar.gz"
+  type             = "tar.gz"
+  output_path      = "${path.module}/build/credit_officer.tar.gz"
+  output_file_mode = "0644"
 
   source {
     content  = file("${path.module}/../agents/credit_officer/agent.py")
@@ -208,5 +209,7 @@ resource "google_vertex_ai_reasoning_engine" "credit_officer" {
     google_project_iam_member.agent_aiplatform,
     google_project_iam_member.agent_discoveryengine,
     google_storage_bucket_iam_member.agent_viewer,
+    google_service_account_iam_member.reasoning_engine_service_agent_user,
+    google_service_account_iam_member.reasoning_engine_service_agent_token_creator,
   ]
 }

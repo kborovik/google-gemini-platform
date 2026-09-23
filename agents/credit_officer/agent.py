@@ -81,4 +81,15 @@ def load_root_agent(environ: Mapping[str, str] | None = None) -> Agent:
     return build_credit_officer(store)
 
 
-root_agent = load_root_agent()
+def _reasoning_engine_app():
+    # Agent Runtime registers query methods on the entrypoint. An LlmAgent has
+    # none of them; AdkApp is the object the runtime knows how to serve.
+    agent = load_root_agent()
+    try:
+        from vertexai.agent_engines import AdkApp
+    except ImportError:
+        return agent
+    return AdkApp(agent=agent)
+
+
+root_agent = _reasoning_engine_app()

@@ -1,1 +1,2 @@
 google-adk>=2.9.2,<3
+google-cloud-aiplatform[agent_engines]>=1.128.0,<2

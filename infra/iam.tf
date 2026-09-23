@@ -28,6 +28,20 @@ resource "google_project_iam_member" "agent_discoveryengine" {
   depends_on = [google_project_service.apis]
 }
 
+# Agent Runtime starts the revision as this account. Without these bindings the
+# Reasoning Engine service agent cannot mint its token, and the revision never serves.
+resource "google_service_account_iam_member" "reasoning_engine_service_agent_user" {
+  service_account_id = google_service_account.agent.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+}
+
+resource "google_service_account_iam_member" "reasoning_engine_service_agent_token_creator" {
+  service_account_id = google_service_account.agent.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+}
+
 # Content import creates a staging bucket in this project. The Google-managed
 # service agent is not bound automatically here, so documents:import 403s.
 data "google_project" "current" {

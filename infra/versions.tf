@@ -19,4 +19,8 @@ terraform {
 provider "google" {
   project = var.project
   region  = var.region
+
+  # User ADC is rejected by Discovery Engine unless the quota project is set.
+  billing_project       = var.project
+  user_project_override = true
 }
