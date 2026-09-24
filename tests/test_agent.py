@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 from tests.live_support import (
+    agent_judgement_runs,
     assert_manifest_judgement,
-    invoke_agent,
+    invoke_on_surface,
     latest_generated_cases,
     load_judgement_cases,
     require_manifest_outcomes,
@@ -19,9 +20,10 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     cases = load_judgement_cases()
     if not cases:
         metafunc.parametrize(
-            "judgement_case",
+            "agent_surface,judgement_case",
             [
                 pytest.param(
+                    "google_cloud_run_v2_service.chat",
                     None,
                     marks=pytest.mark.skip(
                         reason="no data/client-applications/manifest.json"
@@ -31,22 +33,25 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         )
         return
     chosen = latest_generated_cases(cases)
-    ids = [case["application_id"] for case in chosen]
+    runs = agent_judgement_runs(chosen)
+    ids = [f"{surface}-{case['application_id']}" for surface, case in runs]
     if "agent" in (metafunc.config.option.markexpr or ""):
+        filing_ids = [case["application_id"] for case in chosen]
         print(
-            f"\nAgent judgement last {len(chosen)} generated of {len(cases)}: "
-            f"{', '.join(ids)}",
+            f"\nAgent judgement last {len(chosen)} generated of {len(cases)} "
+            f"on the reasoning engine, then chat: {', '.join(filing_ids)}",
             flush=True,
         )
     metafunc.parametrize(
-        "judgement_case",
-        chosen,
+        "agent_surface,judgement_case",
+        runs,
         ids=ids,
     )
 
 
 def test_agent_judgement_matches_manifest(
     live_env: dict[str, str],
+    agent_surface: str,
     judgement_case: dict[str, str] | None,
 ) -> None:
     assert judgement_case is not None
@@ -58,10 +63,11 @@ def test_agent_judgement_matches_manifest(
         intended_outcome=intended_outcome,
         expected_outcome=expected_outcome,
     )
-    text = invoke_agent(
+    text = invoke_on_surface(
         live_env,
         "Evaluate client application "
         f"{application_id} against published credit policy.",
+        agent_surface,
     )
     assert_manifest_judgement(
         text,

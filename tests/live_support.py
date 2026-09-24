@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import subprocess
@@ -25,6 +26,16 @@ CHAT_TIMEOUT_SECONDS = 240.0
 _QUOTA_RETRY_WAITS = (30.0, 60.0)
 _E2E_SPACE = "spaces/e2e"
 _E2E_USER = "users/e2e"
+# `make e2e` queries the reasoning engine, then the same filings through chat.
+AGENT_SURFACES = (
+    "google_vertex_ai_reasoning_engine",
+    "google_cloud_run_v2_service.chat",
+)
+_ENGINE_ENV = (
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_LOCATION",
+    "REASONING_ENGINE",
+)
 
 
 def chat_message_event(
@@ -132,13 +143,85 @@ def invoke_agent(env: dict[str, str], user_text: str) -> str:
     text = body.get("text")
     if not isinstance(text, str) or not text.strip():
         pytest.fail(f"chat host returned no text: {body}")
-    print_agent_turn(user_text, text)
+    print_agent_turn(
+        user_text,
+        text,
+        surface="google_cloud_run_v2_service.chat",
+    )
     return text
 
 
-def print_agent_turn(request: str, response: str) -> None:
-    sys.stdout.write(f"\nAgent Request\n{request}\n\nAgent Response\n{response}\n")
+def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:
+    """Ask the deployed officer through reasoningEngines/{id}:streamQuery."""
+    missing = [name for name in _ENGINE_ENV if not env.get(name)]
+    if missing:
+        pytest.fail("reasoning engine env missing: " + ", ".join(missing))
+    chat = _chat_main()
+    try:
+        config = chat.config_from_env(env)
+    except chat.HandlerError as exc:
+        pytest.fail(str(exc))
+    runtime = chat.RestAgentRuntime(config)
+    session = f"e2e-{uuid.uuid4().hex}"
+    waits = (0.0, *_QUOTA_RETRY_WAITS)
+    for attempt, wait in enumerate(waits):
+        if wait:
+            time.sleep(wait)
+        try:
+            text = runtime.stream_query(
+                user_id="users-e2e",
+                session_id=session,
+                message=user_text,
+            )
+        except chat.HandlerError as exc:
+            message = str(exc)
+            if "RESOURCE_EXHAUSTED" in message and attempt < len(waits) - 1:
+                continue
+            pytest.fail(f"reasoning engine streamQuery failed: {message}")
+        if not isinstance(text, str) or not text.strip():
+            pytest.fail("reasoning engine returned no text")
+        if "RESOURCE_EXHAUSTED" in text and attempt < len(waits) - 1:
+            continue
+        if "RESOURCE_EXHAUSTED" in text:
+            pytest.fail(f"reasoning engine streamQuery failed: {text}")
+        print_agent_turn(
+            user_text,
+            text,
+            surface="google_vertex_ai_reasoning_engine",
+        )
+        return text
+    pytest.fail("reasoning engine streamQuery failed")
+
+
+def invoke_on_surface(env: dict[str, str], user_text: str, surface: str) -> str:
+    """Query one deployed surface. Engine and chat stay separate calls."""
+    if surface == "google_vertex_ai_reasoning_engine":
+        return invoke_reasoning_engine(env, user_text)
+    if surface == "google_cloud_run_v2_service.chat":
+        return invoke_agent(env, user_text)
+    pytest.fail(f"unknown agent surface: {surface}")
+
+
+def print_agent_turn(request: str, response: str, *, surface: str = "") -> None:
+    header = f"\n{surface}\n" if surface else "\n"
+    sys.stdout.write(
+        f"{header}Agent Request\n{request}\n\nAgent Response\n{response}\n"
+    )
     sys.stdout.flush()
+
+
+def _chat_main() -> Any:
+    cached = sys.modules.get("chat_main")
+    if cached is not None:
+        return cached
+    path = repo_root() / "chat" / "main.py"
+    spec = importlib.util.spec_from_file_location("chat_main", path)
+    if spec is None or spec.loader is None:
+        pytest.fail(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["chat_main"] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 # `make e2e` judges this many newest generated filings.
@@ -162,6 +245,13 @@ def latest_generated_cases(
     if len(ordered) <= size:
         return ordered
     return ordered[-size:]
+
+
+def agent_judgement_runs(
+    cases: list[dict[str, str]],
+) -> list[tuple[str, dict[str, str]]]:
+    """Each filing on the reasoning engine, then the same filings on chat."""
+    return [(surface, case) for surface in AGENT_SURFACES for case in cases]
 
 
 def load_judgement_cases(root: Path | None = None) -> list[dict[str, str]]:

@@ -6,15 +6,16 @@ from pathlib import Path
 import pytest
 
 from tests.live_support import (
-    quota_exhausted,
+    agent_judgement_runs,
     assert_expected_decision,
     assert_manifest_judgement,
     chat_message_event,
     expected_decision_token,
+    latest_generated_cases,
     lead_decision_token,
     load_judgement_cases,
-    latest_generated_cases,
     print_agent_turn,
+    quota_exhausted,
 )
 
 pytestmark = pytest.mark.unit
@@ -144,6 +145,27 @@ def test_latest_generated_cases_keeps_the_three_newest_ids() -> None:
     ]
     short = latest_generated_cases(_labelled_cases(2))
     assert [item["application_id"] for item in short] == ["CA-0000", "CA-0001"]
+
+
+def test_agent_judgement_runs_query_the_engine_before_chat() -> None:
+    cases = latest_generated_cases(_labelled_cases(6))
+    runs = agent_judgement_runs(cases)
+    assert [surface for surface, _case in runs] == [
+        "google_vertex_ai_reasoning_engine",
+        "google_vertex_ai_reasoning_engine",
+        "google_vertex_ai_reasoning_engine",
+        "google_cloud_run_v2_service.chat",
+        "google_cloud_run_v2_service.chat",
+        "google_cloud_run_v2_service.chat",
+    ]
+    assert [case["application_id"] for _surface, case in runs] == [
+        "CA-0003",
+        "CA-0004",
+        "CA-0005",
+        "CA-0003",
+        "CA-0004",
+        "CA-0005",
+    ]
 
 
 def test_assert_manifest_judgement_compares_received_decision() -> None:
