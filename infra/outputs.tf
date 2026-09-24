@@ -29,3 +29,7 @@ output "REASONING_ENGINE" {
 output "CHAT_HOST" {
   value = "credit-policy.ai.lab5.ca"
 }
+
+output "AI_ZONE_NS" {
+  value = google_dns_managed_zone.ai.name_servers
+}

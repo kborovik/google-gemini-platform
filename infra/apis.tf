@@ -4,6 +4,7 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
     "discoveryengine.googleapis.com",
+    "dns.googleapis.com",
     "run.googleapis.com",
     "storage.googleapis.com",
   ])

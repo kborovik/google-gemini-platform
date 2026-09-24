@@ -78,7 +78,7 @@ T18|x|sync docs/demo.md and tests off `python -m docgen.google_chat` to `chat/ma
 T19|x|provision DNS-only CNAME `chat.lab5.ca` with module `terraform-cloudflare-modules/dns-record/cloudflare` `1.0.0`; do not create zone `lab5.ca`|V16,V18,I.infra
 T20|x|create full zone `ai.lab5.ca`; CNAME `credit-policy` → `ghs.googlehosted.com`; domain mapping and `CHAT_HOST` = `credit-policy.ai.lab5.ca`; parent NS records stay in zone `lab5.ca`|V16,V18,I.infra,I.chat
 T21|x|drop the Cloudflare dns-record module, `cloudflare_zone`, and `AI_ZONE_NS`; DNS for `credit-policy.ai.lab5.ca` stays outside this repo|V16,V18,I.infra
-T22|.|add Cloud DNS public zone `ai.lab5.ca`; every chat-app DNS record is a `google_dns_record_set` in that zone, including CNAME `credit-policy.ai.lab5.ca` → `ghs.googlehosted.com`; sync docs/demo.md and tests off Cloudflare|V16,V18,I.infra,I.chat
+T22|x|add Cloud DNS public zone `ai.lab5.ca`; every chat-app DNS record is a `google_dns_record_set` in that zone, including CNAME `credit-policy.ai.lab5.ca` → `ghs.googlehosted.com`; sync docs/demo.md and tests off Cloudflare|V16,V18,I.infra,I.chat
 
 ## §B BUGS
 

@@ -48,8 +48,11 @@ def test_demo_path_is_chat_and_agent_search() -> None:
         "REASONING_ENGINE",
         "chat/main.py",
         "https://credit-policy.ai.lab5.ca",
-        "Cloudflare DNS-only CNAME",
+        "Cloud DNS",
+        "dns.googleapis.com",
         "ghs.googlehosted.com",
+        "AI_ZONE_NS",
+        "does not manage zone `lab5.ca`",
         "Cloud Build",
         "Google Chat",
         "async_stream_query",
@@ -57,3 +60,5 @@ def test_demo_path_is_chat_and_agent_search() -> None:
         assert phrase in text
     assert "python -m docgen.google_chat" not in text
     assert "docgen.google_chat" not in text
+    assert "cloudflare" not in lowered
+    assert "Cloudflare" not in text

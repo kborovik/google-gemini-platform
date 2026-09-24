@@ -332,6 +332,38 @@ def test_v18_chat_handler_host() -> None:
     assert re.search(
         r'output "CHAT_HOST" \{\s*value = "credit-policy\.ai\.lab5\.ca"', text
     )
+    zone = re.search(
+        r'resource "google_dns_managed_zone" "ai" \{(?P<body>.*?)\n\}',
+        text,
+        re.S,
+    )
+    assert zone is not None
+    zone_body = zone.group("body")
+    assert re.search(r'name\s+=\s+"ai-lab5-ca"', zone_body)
+    assert re.search(r'dns_name\s+=\s+"ai\.lab5\.ca\."', zone_body)
+    assert re.search(r'visibility\s+=\s+"public"', zone_body)
+    assert re.search(r"project\s+=\s+var\.project", zone_body)
+    assert re.search(r'dns_name\s+=\s+"lab5\.ca\."', text) is None
+    record = re.search(
+        r'resource "google_dns_record_set" "credit_policy" \{(?P<body>.*?)\n\}',
+        text,
+        re.S,
+    )
+    assert record is not None
+    record_body = record.group("body")
+    assert re.search(r'name\s+=\s+"credit-policy\.ai\.lab5\.ca\."', record_body)
+    assert re.search(r'type\s+=\s+"CNAME"', record_body)
+    assert re.search(r'rrdatas\s+=\s+\["ghs\.googlehosted\.com\."\]', record_body)
+    assert re.search(
+        r"managed_zone\s+=\s+google_dns_managed_zone\.ai\.name", record_body
+    )
+    assert len(re.findall(r'resource "google_dns_record_set"', text)) == 1
+    assert "dns.googleapis.com" in text
+    assert re.search(
+        r'output "AI_ZONE_NS" \{\s*'
+        r"value = google_dns_managed_zone\.ai\.name_servers",
+        text,
+    )
     for banned in (
         "google_compute_global_address",
         "google_compute_global_forwarding_rule",
@@ -343,7 +375,6 @@ def test_v18_chat_handler_host() -> None:
         "terraform-cloudflare-modules",
         'module "chat_dns"',
         'resource "cloudflare_zone"',
-        "AI_ZONE_NS",
         "allUsers",
     ):
         assert banned not in text, banned
