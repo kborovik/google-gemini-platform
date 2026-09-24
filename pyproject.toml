@@ -46,7 +46,7 @@ markers = [
     "unit: corpus contract and CLI tests, no Google Cloud",
     "ingestion: live Cloud Storage + Agent Search indexed counts",
     "retrieval: live Agent Search retrieve",
-    "agent: live Gemini generateContent",
+    "agent: live judgement through https://credit-policy.ai.lab5.ca",
     "teams: Google Chat live path",
 ]
 testpaths = ["tests"]

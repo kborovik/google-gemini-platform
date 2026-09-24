@@ -83,8 +83,11 @@ def test_v4_retrieval_agent_is_vertex_ai_search_only() -> None:
 def test_v7_chat_model_does_not_set_embeddings() -> None:
     officer = build_credit_officer(STORE)
     retrieval = officer.tools[0].agent
-    assert officer.model == CHAT_MODEL == DEFAULT_CHAT_MODEL == "gemini-3.8-flash"
-    assert retrieval.model == CHAT_MODEL
+    assert officer.model.model == CHAT_MODEL == DEFAULT_CHAT_MODEL == "gemini-3.8-flash"
+    assert officer.model.client_kwargs == {"vertexai": True, "location": "global"}
+    assert retrieval.model.model == CHAT_MODEL
+    assert retrieval.model.client_kwargs["location"] == "global"
+    assert retrieval.model is not officer.model
     package = repo_root() / "agents" / "credit_officer"
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(package.glob("*.py"))

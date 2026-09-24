@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from google.adk.agents import Agent
+from google.adk.models import Gemini
 from google.adk.tools import AgentTool, VertexAiSearchTool
 
 CHAT_MODEL = "gemini-3.8-flash"
@@ -32,6 +33,15 @@ INTERACTIVE_DESCRIPTION = (
 )
 
 
+def chat_model() -> Gemini:
+    # gemini-3.8-flash is published on global, us, and eu. The us-east1
+    # publisher host 404s, and Agent Runtime otherwise uses its own region.
+    return Gemini(
+        model=CHAT_MODEL,
+        client_kwargs={"vertexai": True, "location": "global"},
+    )
+
+
 def load_credit_officer_instructions() -> str:
     return INSTRUCTIONS_PATH.read_text(encoding="utf-8")
 
@@ -53,7 +63,7 @@ def build_credit_officer(data_store_id: str) -> Agent:
         raise ValueError("DATA_STORE is required")
     retrieval_agent = Agent(
         name="RetrievalAgent",
-        model=CHAT_MODEL,
+        model=chat_model(),
         description=RETRIEVAL_DESCRIPTION,
         instruction=RETRIEVAL_INSTRUCTION,
         tools=[VertexAiSearchTool(data_store_id=store)],
@@ -62,7 +72,7 @@ def build_credit_officer(data_store_id: str) -> Agent:
     )
     return Agent(
         name="InteractiveAgent",
-        model=CHAT_MODEL,
+        model=chat_model(),
         description=INTERACTIVE_DESCRIPTION,
         instruction=credit_officer_instruction,
         tools=[

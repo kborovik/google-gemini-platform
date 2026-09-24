@@ -105,7 +105,7 @@ def test_v4_message_calls_stream_query_and_replies_in_thread() -> None:
     assert runtime.calls == [
         (USER, session_id(SPACE, THREAD), "What is max LTV?"),
     ]
-    assert session_id(SPACE, THREAD) == f"{SPACE} {THREAD}"
+    assert session_id(SPACE, THREAD) == "spaces-AAA-spaces-AAA-threads-TTT"
     assert reply == {
         "text": "Max LTV is 80% (CP-RML-2026-01).",
         "thread": {"name": THREAD},
@@ -219,6 +219,26 @@ def test_model_text_prefers_final_officer_answer() -> None:
     assert model_text(partial_only) == "only partial"
 
 
+def test_stream_query_error_body_is_posted_in_the_thread() -> None:
+    payload = json.dumps(
+        {
+            "code": 498,
+            "message": "Invalid session_id 'spaces/AAA spaces/AAA/threads/TTT'",
+            "errorMessage": "Invalid session_id 'spaces/AAA spaces/AAA/threads/TTT'",
+        }
+    )
+    rest = FakeRest(payload, status_code=200)
+    runtime = RestAgentRuntime(
+        ChatHandlerConfig("lab5-gemini-dev1", "us-east1", "99"),
+        client=rest,
+    )
+    status, reply = http_reply(json.dumps(_event()).encode(), runtime)
+    assert status == 200
+    assert reply["thread"]["name"] == THREAD
+    assert "streamQuery failed" in reply["text"]
+    assert "Invalid session_id" in reply["text"]
+
+
 def test_stream_query_failure_is_posted_in_the_thread() -> None:
     rest = FakeRest("nope", status_code=404)
     runtime = RestAgentRuntime(
@@ -289,8 +309,8 @@ def test_config_reads_only_the_supplied_env() -> None:
 
 
 def test_bind_address_uses_port_env_or_flag() -> None:
-    assert bind_address(None, {}) == ("0.0.0.0", 8080)
-    assert bind_address(None, {"PORT": "9090"}) == ("0.0.0.0", 9090)
+    assert bind_address([], {}) == ("0.0.0.0", 8080)
+    assert bind_address([], {"PORT": "9090"}) == ("0.0.0.0", 9090)
     assert bind_address(["--port", "7"], {"PORT": "9090"}) == ("0.0.0.0", 7)
     assert bind_address(["--host", "127.0.0.1", "--port", "8081"], {}) == (
         "127.0.0.1",

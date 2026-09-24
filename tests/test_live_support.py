@@ -7,20 +7,41 @@ import pytest
 
 from tests.live_support import (
     application_cases,
+    quota_exhausted,
     assert_expected_decision,
     assert_manifest_judgement,
+    chat_message_event,
     expected_decision_token,
     flatten_retrieve_text,
     lead_decision_token,
     load_judgement_cases,
     pick_application_case,
     resolve_judgement_sample_seed,
+    latest_generated_cases,
     sample_judgement_cases,
     print_agent_turn,
     search_request,
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_quota_exhausted_matches_stream_query_429() -> None:
+    assert quota_exhausted({"text": "streamQuery failed: 429 RESOURCE_EXHAUSTED."})
+    assert not quota_exhausted({"text": "decision: accept"})
+
+
+def test_chat_message_event_is_a_human_message() -> None:
+    thread = "spaces/e2e/threads/abc"
+    event = chat_message_event("Evaluate CA-1", thread=thread)
+    assert event["type"] == "MESSAGE"
+    assert event["user"] == {"name": "users/e2e", "type": "HUMAN"}
+    message = event["message"]
+    assert message["argumentText"] == "Evaluate CA-1"
+    assert message["text"] == "Evaluate CA-1"
+    assert message["sender"] == {"name": "users/e2e", "type": "HUMAN"}
+    assert message["space"] == {"name": "spaces/e2e"}
+    assert message["thread"] == {"name": thread}
 
 
 def test_search_request_asks_for_snippets_not_extractive_answers() -> None:
@@ -174,6 +195,18 @@ def _labelled_cases(count: int) -> list[dict[str, str]]:
         }
         for index in range(count)
     ]
+
+
+def test_latest_generated_cases_keeps_the_three_newest_ids() -> None:
+    cases = _labelled_cases(6)
+    chosen = latest_generated_cases(cases)
+    assert [item["application_id"] for item in chosen] == [
+        "CA-0003",
+        "CA-0004",
+        "CA-0005",
+    ]
+    short = latest_generated_cases(_labelled_cases(2))
+    assert [item["application_id"] for item in short] == ["CA-0000", "CA-0001"]
 
 
 def test_sample_judgement_cases_draws_five_and_keeps_the_seed() -> None:

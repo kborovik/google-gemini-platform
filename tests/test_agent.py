@@ -5,13 +5,12 @@ import pytest
 from tests.live_support import (
     assert_manifest_judgement,
     invoke_agent,
+    latest_generated_cases,
     load_judgement_cases,
     require_manifest_outcomes,
-    resolve_judgement_sample_seed,
-    sample_judgement_cases,
 )
 
-pytestmark = [pytest.mark.agent, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.agent, pytest.mark.timeout(600)]
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -31,13 +30,12 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             ],
         )
         return
-    seed = resolve_judgement_sample_seed()
-    chosen = sample_judgement_cases(cases, seed=seed)
+    chosen = latest_generated_cases(cases)
     ids = [case["application_id"] for case in chosen]
     if "agent" in (metafunc.config.option.markexpr or ""):
         print(
-            f"\nAgent judgement sample {len(chosen)} of {len(cases)} "
-            f"seed={seed}: {', '.join(ids)}",
+            f"\nAgent judgement last {len(chosen)} generated of {len(cases)}: "
+            f"{', '.join(ids)}",
             flush=True,
         )
     metafunc.parametrize(

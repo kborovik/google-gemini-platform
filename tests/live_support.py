@@ -4,20 +4,32 @@ import json
 import os
 import random
 import re
+import subprocess
 import sys
+import time
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import pytest
+import requests
 
 from docgen.application import iter_manifest_documents, parse_application_markdown
-from docgen.chat import ChatConfig, GeminiChatModel, load_instructions
-from docgen.constants import APPLICATION_TYPES, DEFAULT_CHAT_MODEL, DEFAULT_CORPUS
+from docgen.constants import APPLICATION_TYPES, DEFAULT_CORPUS
 from docgen.env import repo_root
 from docgen.errors import TalosError
 from docgen.rest import RequestsRest, RestResponse, raise_for_status
 from docgen.search_index import data_store_resource, search_url
 from tests.helpers import APPLICATION_FIXTURES_RELATIVE, APPLICATION_OUTPUT_RELATIVE
+
+# Public Chat handler. Cloud Run accepts the active gcloud user's identity token.
+CHAT_URL = "https://credit-policy.ai.lab5.ca/"
+# streamQuery budget is 180s; the Cloud Run service timeout is 300s.
+CHAT_TIMEOUT_SECONDS = 240.0
+# Gemini 429s inside an HTTP 200 streamQuery body. Wait, then send the turn again.
+_QUOTA_RETRY_WAITS = (30.0, 60.0)
+_E2E_SPACE = "spaces/e2e"
+_E2E_USER = "users/e2e"
 
 
 def corpus_name(env: dict[str, str]) -> str:
@@ -93,24 +105,111 @@ def flatten_retrieve_text(body: dict[str, Any]) -> str:
     return "\n".join(chunks)
 
 
-def invoke_agent(env: dict[str, str], user_text: str) -> str:
-    model = GeminiChatModel(
-        RequestsRest(),
-        ChatConfig(
-            project=env["GOOGLE_CLOUD_PROJECT"],
-            location=env["GOOGLE_CLOUD_LOCATION"],
-            corpus_name=corpus_name(env),
-            model=DEFAULT_CHAT_MODEL,
-            instructions=load_instructions(),
-        ),
-    )
+def chat_message_event(
+    user_text: str,
+    *,
+    thread: str,
+    space: str = _E2E_SPACE,
+    user: str = _E2E_USER,
+) -> dict[str, Any]:
+    """Google Chat MESSAGE the public handler accepts."""
+    return {
+        "type": "MESSAGE",
+        "user": {"name": user, "type": "HUMAN"},
+        "space": {"name": space},
+        "message": {
+            "text": user_text,
+            "argumentText": user_text,
+            "sender": {"name": user, "type": "HUMAN"},
+            "space": {"name": space},
+            "thread": {"name": thread},
+        },
+    }
+
+
+def gcloud_identity_token() -> str:
+    """Identity token for the active gcloud user. User accounts cannot set --audiences."""
     try:
-        text = model.generate(
-            contents=[{"role": "user", "parts": [{"text": user_text}]}],
-            system=load_instructions(),
+        completed = subprocess.run(
+            ["gcloud", "auth", "print-identity-token"],
+            check=False,
+            capture_output=True,
+            text=True,
         )
-    except TalosError as exc:
-        pytest.fail(str(exc))
+    except OSError as exc:
+        pytest.fail(f"gcloud auth print-identity-token failed: {exc}")
+    token = completed.stdout.strip()
+    if completed.returncode != 0 or not token:
+        detail = completed.stderr.strip() or "empty token"
+        pytest.fail(f"gcloud auth print-identity-token failed: {detail}")
+    return token
+
+
+def quota_exhausted(body: Mapping[str, Any]) -> bool:
+    text = body.get("text")
+    return isinstance(text, str) and "RESOURCE_EXHAUSTED" in text
+
+
+def post_chat_message(
+    user_text: str,
+    *,
+    thread: str,
+    space: str = _E2E_SPACE,
+    user: str = _E2E_USER,
+) -> dict[str, Any]:
+    """POST one Chat MESSAGE to the public handler and return its JSON body."""
+    waits = (0.0, *_QUOTA_RETRY_WAITS)
+    body: dict[str, Any] | None = None
+    for attempt, wait in enumerate(waits):
+        if wait:
+            time.sleep(wait)
+        body = _post_chat_once(user_text, thread=thread, space=space, user=user)
+        if not quota_exhausted(body) or attempt == len(waits) - 1:
+            return body
+    assert body is not None
+    return body
+
+
+def _post_chat_once(
+    user_text: str,
+    *,
+    thread: str,
+    space: str,
+    user: str,
+) -> dict[str, Any]:
+    try:
+        response = requests.post(
+            CHAT_URL,
+            headers={
+                "Authorization": f"Bearer {gcloud_identity_token()}",
+                "Content-Type": "application/json",
+            },
+            json=chat_message_event(user_text, thread=thread, space=space, user=user),
+            timeout=CHAT_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        pytest.fail(f"POST {CHAT_URL} failed: {exc}")
+    try:
+        body = response.json()
+    except ValueError:
+        pytest.fail(
+            f"POST {CHAT_URL} returned {response.status_code} "
+            f"non-JSON body: {response.text[:500]}"
+        )
+    if response.status_code != 200 or not isinstance(body, dict):
+        pytest.fail(f"POST {CHAT_URL} returned {response.status_code}: {body}")
+    return body
+
+
+def invoke_agent(env: dict[str, str], user_text: str) -> str:
+    """Ask the deployed officer through https://credit-policy.ai.lab5.ca."""
+    if not env.get("GOOGLE_CLOUD_PROJECT"):
+        pytest.fail("GOOGLE_CLOUD_PROJECT is not set")
+    thread = f"{_E2E_SPACE}/threads/{uuid.uuid4().hex}"
+    body = post_chat_message(user_text, thread=thread)
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip():
+        pytest.fail(f"chat host returned no text: {body}")
     print_agent_turn(user_text, text)
     return text
 
@@ -197,9 +296,10 @@ def pick_application_case(application_type: str | None = None) -> dict[str, Any]
     return random.Random(seed).choice(pool)
 
 
-# Live agent judgement calls one model turn per filing. A full manifest is
-# dozens of turns; each e2e run judges this many, chosen at random.
+# Optional random sample. `make e2e` does not use it; it judges the last
+# three generated filings.
 JUDGEMENT_SAMPLE_SIZE = 5
+LATEST_GENERATED_COUNT = 3
 
 
 def resolve_judgement_sample_seed() -> int:
@@ -231,6 +331,25 @@ def sample_judgement_cases(
     picked = rng.sample(cases, size)
     picked.sort(key=lambda item: item["application_id"])
     return picked
+
+
+def latest_generated_cases(
+    cases: list[dict[str, str]],
+    *,
+    size: int = LATEST_GENERATED_COUNT,
+) -> list[dict[str, str]]:
+    """The newest `size` filings by application id.
+
+    `generate application --all` appends accepted, rejected, and missing-data
+    with increasing ids, so the tail is that batch. A shorter list is returned
+    whole, still in id order.
+    """
+    if size < 1:
+        raise ValueError("size must be >= 1")
+    ordered = sorted(cases, key=lambda item: item["application_id"])
+    if len(ordered) <= size:
+        return ordered
+    return ordered[-size:]
 
 
 def load_judgement_cases(root: Path | None = None) -> list[dict[str, str]]:

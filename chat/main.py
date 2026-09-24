@@ -18,6 +18,8 @@ STREAM_QUERY_TIMEOUT = 180.0
 _API_VERSION = "v1beta1"
 _RESOURCE = re.compile(r"^projects/([^/]+)/locations/([^/]+)/reasoningEngines/([^/]+)$")
 _ENGINE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+# Agent Runtime session ids must match ^[A-Za-z0-9_-]+$.
+_SESSION_UNSAFE = re.compile(r"[^A-Za-z0-9_-]+")
 _MAX_BODY = 1_000_000
 _CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _RETRY_STATUSES = frozenset({429, 500, 502, 503})
@@ -65,7 +67,11 @@ class AgentRuntime(Protocol):
 
 
 def session_id(space: str, thread: str) -> str:
-    return f"{space} {thread}"
+    """Stable session id for one Chat space and thread.
+
+    The engine rejects spaces and slashes, so those characters become hyphens.
+    """
+    return _SESSION_UNSAFE.sub("-", f"{space} {thread}").strip("-")
 
 
 def stream_query_url(project: str, location: str, reasoning_engine: str) -> str:
@@ -249,7 +255,37 @@ class RestAgentRuntime:
             timeout=STREAM_QUERY_TIMEOUT,
         )
         raise_for_status(response, "streamQuery")
-        return model_text(response.text)
+        text = model_text(response.text)
+        if text:
+            return text
+        error = stream_error(response.text)
+        if error:
+            raise HandlerError(f"streamQuery failed: {error}")
+        return ""
+
+
+def stream_error(payload: str) -> str:
+    """Last error from an HTTP 200 streamQuery body that carries no model text."""
+    messages: list[str] = []
+    for event in _stream_objects(payload):
+        if not isinstance(event, dict):
+            continue
+        for key in ("error_message", "errorMessage"):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                messages.append(value.strip())
+                break
+        else:
+            code = event.get("code", event.get("errorCode", event.get("error_code")))
+            message = event.get("message")
+            if (
+                code is not None
+                and isinstance(message, str)
+                and message.strip()
+                and "content" not in event
+            ):
+                messages.append(message.strip())
+    return messages[-1] if messages else ""
 
 
 def model_text(payload: str) -> str:
