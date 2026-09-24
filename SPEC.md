@@ -79,7 +79,7 @@ T19|x|provision DNS-only CNAME `chat.lab5.ca` with module `terraform-cloudflare-
 T20|x|create full zone `ai.lab5.ca`; CNAME `credit-policy` → `ghs.googlehosted.com`; domain mapping and `CHAT_HOST` = `credit-policy.ai.lab5.ca`; parent NS records stay in zone `lab5.ca`|V16,V18,I.infra,I.chat
 T21|x|drop the Cloudflare dns-record module, `cloudflare_zone`, and `AI_ZONE_NS`; DNS for `credit-policy.ai.lab5.ca` stays outside this repo|V16,V18,I.infra
 T22|x|add Cloud DNS public zone `ai.lab5.ca`; every chat-app DNS record is a `google_dns_record_set` in that zone, including CNAME `credit-policy.ai.lab5.ca` → `ghs.googlehosted.com`; sync docs/demo.md and tests off Cloudflare|V16,V18,I.infra,I.chat
-T23|.|verify INET_DOMAIN `ai.lab5.ca` via DNS TXT in zone `ai-lab5-ca`; web resource `deletion_policy` `ABANDON`; domain mapping depends on it; `gmake google-auth` ADC scopes include siteverification; sync tests and docs/demo.md|V16,V18,I.cmd,I.file,I.infra
+T23|x|verify INET_DOMAIN `ai.lab5.ca` via DNS TXT in zone `ai-lab5-ca`; web resource `deletion_policy` `ABANDON`; domain mapping depends on it; `gmake google-auth` ADC scopes include siteverification; sync tests and docs/demo.md|V16,V18,I.cmd,I.file,I.infra
 
 ## §B BUGS
 

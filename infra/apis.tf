@@ -6,6 +6,7 @@ resource "google_project_service" "apis" {
     "discoveryengine.googleapis.com",
     "dns.googleapis.com",
     "run.googleapis.com",
+    "siteverification.googleapis.com",
     "storage.googleapis.com",
   ])
 

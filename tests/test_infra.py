@@ -239,7 +239,15 @@ def test_makefile_terraform_recipes_follow_org_factory() -> None:
     assert "apply -destroy -input=false -refresh=true -var-file=$(TF_VAR_FILE)" in text
     assert "rm -f $(terraform_dir)/outputs.json" in text
     assert re.search(r"^infra-", text, re.M) is None
-    assert "gcloud auth login --update-adc --no-launch-browser" in text
+    assert "gcloud auth login --no-launch-browser" in text
+    assert "gcloud auth login --update-adc" not in text
+    assert (
+        "gcloud auth application-default login --no-launch-browser "
+        '--scopes="openid,https://www.googleapis.com/auth/userinfo.email,'
+        "https://www.googleapis.com/auth/cloud-platform,"
+        "https://www.googleapis.com/auth/sqlservice.login,"
+        'https://www.googleapis.com/auth/siteverification"'
+    ) in text
     assert "gcloud auth application-default set-quota-project $(google_project)" in text
     assert "gcloud config set core/project $(google_project)" in text
     assert "gcloud config set compute/region $(google_region)" in text
@@ -357,8 +365,48 @@ def test_v18_chat_handler_host() -> None:
     assert re.search(
         r"managed_zone\s+=\s+google_dns_managed_zone\.ai\.name", record_body
     )
-    assert len(re.findall(r'resource "google_dns_record_set"', text)) == 1
+    token = re.search(
+        r'data "google_site_verification_token" "ai" \{(?P<body>.*?)\n\}',
+        text,
+        re.S,
+    )
+    assert token is not None
+    token_body = token.group("body")
+    assert re.search(r'type\s+=\s+"INET_DOMAIN"', token_body)
+    assert re.search(r'identifier\s+=\s+"ai\.lab5\.ca"', token_body)
+    assert re.search(r'verification_method\s+=\s+"DNS_TXT"', token_body)
+    assert "google_project_service.apis" in token_body
+    txt = re.search(
+        r'resource "google_dns_record_set" "ai_verification" \{(?P<body>.*?)\n\}',
+        text,
+        re.S,
+    )
+    assert txt is not None
+    txt_body = txt.group("body")
+    assert re.search(r'name\s+=\s+"ai\.lab5\.ca\."', txt_body)
+    assert re.search(r'type\s+=\s+"TXT"', txt_body)
+    assert re.search(
+        r"rrdatas\s+=\s+\[data\.google_site_verification_token\.ai\.token\]",
+        txt_body,
+    )
+    assert re.search(r"managed_zone\s+=\s+google_dns_managed_zone\.ai\.name", txt_body)
+    web = re.search(
+        r'resource "google_site_verification_web_resource" "ai" \{(?P<body>.*?)\n\}',
+        text,
+        re.S,
+    )
+    assert web is not None
+    web_body = web.group("body")
+    assert re.search(r'type\s+=\s+"INET_DOMAIN"', web_body)
+    assert re.search(r'identifier\s+=\s+"ai\.lab5\.ca"', web_body)
+    assert re.search(r'verification_method\s+=\s+"DNS_TXT"', web_body)
+    assert re.search(r'deletion_policy\s+=\s+"ABANDON"', web_body)
+    assert "google_dns_record_set.ai_verification" in web_body
+    assert 'identifier          = "lab5.ca"' not in text
+    assert "google_site_verification_web_resource.ai" in mapped
+    assert len(re.findall(r'resource "google_dns_record_set"', text)) == 2
     assert "dns.googleapis.com" in text
+    assert "siteverification.googleapis.com" in text
     assert re.search(
         r'output "AI_ZONE_NS" \{\s*'
         r"value = google_dns_managed_zone\.ai\.name_servers",

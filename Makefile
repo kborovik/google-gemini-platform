@@ -211,7 +211,8 @@ google: google-config ## Point the Google CLI at $(PROJECT)
 google-auth: ## Log in and refresh application-default credentials
 	$(call need-gcloud)
 	$(call header,Configure Google CLI)
-	gcloud auth login --update-adc --no-launch-browser
+	gcloud auth login --no-launch-browser
+	gcloud auth application-default login --no-launch-browser --scopes="openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/sqlservice.login,https://www.googleapis.com/auth/siteverification"
 
 google-logout: ## Revoke gcloud credentials
 	$(call need-gcloud)

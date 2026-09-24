@@ -156,18 +156,21 @@ resource "google_cloud_run_v2_service" "chat" {
   ]
 }
 
-# resource "google_cloud_run_domain_mapping" "chat" {
-#   location = var.region
-#   name     = "credit-policy.ai.lab5.ca"
-#   project  = var.project
-#
-#   metadata {
-#     namespace = var.project
-#   }
-#
-#   spec {
-#     route_name = google_cloud_run_v2_service.chat.name
-#   }
-#
-#   depends_on = [google_project_service.apis]
-# }
+resource "google_cloud_run_domain_mapping" "chat" {
+  location = var.region
+  name     = "credit-policy.ai.lab5.ca"
+  project  = var.project
+
+  metadata {
+    namespace = var.project
+  }
+
+  spec {
+    route_name = google_cloud_run_v2_service.chat.name
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_site_verification_web_resource.ai,
+  ]
+}
