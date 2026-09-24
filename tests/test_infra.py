@@ -165,7 +165,13 @@ def test_terraform_deploys_credit_officer_reasoning_engine() -> None:
         r"value\s+=\s+google_discovery_engine_data_store\.kb_credit_policies\.name",
         body,
     )
-    filenames = re.findall(r'filename\s+=\s+"([^"]+)"', text)
+    archive = re.search(
+        r'data "archive_file" "credit_officer" \{(?P<body>.*?)\n\}',
+        text,
+        re.S,
+    )
+    assert archive is not None
+    filenames = re.findall(r'filename\s+=\s+"([^"]+)"', archive.group("body"))
     assert filenames == [
         "agent.py",
         "credit-policy-agent.instructions.md",
@@ -192,26 +198,13 @@ def test_terraform_deploys_credit_officer_reasoning_engine() -> None:
     )
 
 
-def test_makefile_chat_serves_handler_on_public_https() -> None:
+def test_makefile_has_no_chat_recipe() -> None:
     text = (repo_root() / "Makefile").read_text(encoding="utf-8")
-    assert "CHAT_PORT ?= 8080" in text
-    match = re.search(r"^chat:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
-    assert match is not None
-    body = match.group(1)
-    assert "need-cloudflared" in body
-    assert "$(UV) run python chat/main.py" in body
-    assert "docgen.google_chat" not in body
-    assert "infra/outputs.json" in body
-    for key in (
-        "GOOGLE_CLOUD_PROJECT",
-        "GOOGLE_CLOUD_LOCATION",
-        "REASONING_ENGINE",
-    ):
-        assert key in body
-    assert "--host 127.0.0.1" in body
-    assert "--port $(CHAT_PORT)" in body
-    assert "cloudflared tunnel --no-autoupdate --url" in body
-    assert "http://127.0.0.1:$(CHAT_PORT)" in body
+    assert re.search(r"^chat:", text, re.M) is None
+    assert re.search(r"^chat-deploy:", text, re.M) is None
+    assert "CHAT_PORT" not in text
+    assert "cloudflared" not in text
+    assert "need-cloudflared" not in text
 
 
 def test_makefile_index_wait_flag() -> None:
@@ -310,8 +303,18 @@ def test_v18_chat_handler_host() -> None:
     assert re.search(
         r"service_account\s+=\s+google_service_account\.agent\.email", body
     )
-    assert "${var.region}-docker.pkg.dev/${var.project}/chat/handler" in body
+    assert re.search(r"image\s+=\s+local\.chat_image", body)
     assert 'command = ["python", "main.py"]' in body
+    assert "cloudbuild.googleapis.com" in text
+    assert "logging.googleapis.com" not in text
+    assert 'account_id   = "chat-builder"' in text
+    assert "GCS_ONLY" in (repo_root() / "chat/cloudbuild.yaml").read_text(encoding="utf-8")
+    assert (
+        "${var.region}-docker.pkg.dev/${var.project}/chat/handler:${data.archive_file.chat.output_md5}"
+        in text
+    )
+    assert "gcloud builds submit" in text
+    assert "terraform_data.chat_image" in body
     mapping = re.search(
         r'resource "google_cloud_run_domain_mapping" "chat" \{(?P<body>.*?)\n\}',
         text,
@@ -336,16 +339,9 @@ def test_v18_chat_handler_host() -> None:
     ):
         assert banned not in text, banned
     makefile = (repo_root() / "Makefile").read_text(encoding="utf-8")
-    deploy = re.search(r"^chat-deploy:[^\n]*\n((?:[ \t].*\n)*)", makefile, re.M)
-    assert deploy is not None
-    recipe = deploy.group(1)
-    build_at = recipe.index(
-        "docker build -t $(REGION)-docker.pkg.dev/$(PROJECT)/chat/handler chat"
-    )
-    push_at = recipe.index(
-        "docker push $(REGION)-docker.pkg.dev/$(PROJECT)/chat/handler"
-    )
-    apply_at = recipe.index("$(MAKE) terraform-apply")
-    assert build_at < push_at < apply_at
-    assert "docgen" not in recipe
-    assert "adk deploy" not in recipe
+    assert re.search(r"^chat:", makefile, re.M) is None
+    assert re.search(r"^chat-deploy:", makefile, re.M) is None
+    assert "docker build" not in makefile
+    assert "docker push" not in makefile
+    assert "need-docker" not in makefile
+    assert "adk deploy" not in makefile

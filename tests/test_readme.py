@@ -50,7 +50,7 @@ def test_demo_path_is_chat_and_agent_search() -> None:
         "https://chat.lab5.ca",
         "Cloudflare DNS-only CNAME",
         "ghs.googlehosted.com",
-        "gmake chat-deploy",
+        "Cloud Build",
         "Google Chat",
         "async_stream_query",
     ):

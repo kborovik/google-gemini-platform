@@ -28,8 +28,6 @@ need-gcloud = $(if $(dry-run),,$(if $(shell command -v gcloud),,$(error gcloud C
 need-gcloud-auth = $(if $(dry-run),,$(shell gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gcloud not authenticated — run: gmake google-auth)))
 need-gh = $(if $(dry-run),,$(if $(shell command -v gh),,$(error gh CLI required)))
 need-gh-auth = $(if $(dry-run),,$(shell gh auth status >/dev/null 2>&1)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gh not authenticated — run: gh auth login)))
-need-cloudflared = $(if $(dry-run),,$(if $(shell command -v cloudflared),,$(error cloudflared not on PATH — brew install cloudflared)))
-need-docker = $(if $(dry-run),,$(if $(shell command -v docker),,$(error docker not on PATH)))
 need-clean = $(if $(dry-run),,$(if $(shell git status --porcelain),$(error working tree not clean — commit or stash first)))
 need-part = $(if $(part),,$(error usage: gmake release major|minor|patch))
 
@@ -37,7 +35,6 @@ need-part = $(if $(part),,$(error usage: gmake release major|minor|patch))
 # terraform-$(PROJECT), created in that project by the org factory.
 PROJECT ?= lab5-gemini-dev1
 REGION ?= us-east1
-CHAT_PORT ?= 8080
 google_project := $(PROJECT)
 google_region := $(REGION)
 google_zone ?= $(google_region)-b
@@ -56,7 +53,7 @@ rwildcard = $(strip \
 
 default: help
 
-.PHONY: help test check generate deploy chat chat-deploy index --wait preflight e2e clean
+.PHONY: help test check generate deploy index --wait preflight e2e clean
 .PHONY: terraform terraform-config terraform-fmt terraform-init terraform-validate
 .PHONY: terraform-plan terraform-apply terraform-destroy terraform-clean terraform-show terraform-list
 .PHONY: terraform-state-recursive terraform-state-versions terraform-state-unlock prompt
@@ -102,50 +99,6 @@ endif
 index: .venv ## Import both prefixes into data store kb-credit-policies
 	$(call header,Indexing Agent Search data store)
 	$(UV) run docgen index $(if $(wait),--wait,)
-
-# cloudflared publishes the handler at a trycloudflare.com HTTPS URL.
-# Missing handler env comes from infra/outputs.json. chat/main.py does not read that file.
-chat: .venv ## Serve the Chat handler on a public HTTPS URL
-	$(call need-cloudflared)
-	$(call header,Google Chat handler)
-	printf '%s\n' "Public HTTPS URL is the trycloudflare.com address below. Paste it into the Chat app HTTP endpoint."
-	eval "$$($(UV) run python -c 'import json, os, shlex; from pathlib import Path; p = Path("infra/outputs.json"); data = json.loads(p.read_text()) if p.is_file() else {}; keys = ("GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "REASONING_ENGINE"); [print("export %s=%s" % (key, shlex.quote(str(data[key]["value"])))) for key in keys if not os.environ.get(key) and isinstance(data.get(key), dict) and data[key].get("value")]')" || exit $$?; \
-	$(UV) run python chat/main.py --host 127.0.0.1 --port $(CHAT_PORT) & \
-	handler_pid=$$!; \
-	trap 'kill $$handler_pid 2>/dev/null; wait $$handler_pid 2>/dev/null || true' EXIT; \
-	trap 'exit 130' INT; \
-	trap 'exit 143' TERM; \
-	i=0; \
-	while true; do \
-		if ! kill -0 $$handler_pid 2>/dev/null; then \
-			wait $$handler_pid; \
-			exit $$?; \
-		fi; \
-		if curl -s -o /dev/null --max-time 0.2 "http://127.0.0.1:$(CHAT_PORT)/"; then \
-			break; \
-		fi; \
-		i=$$((i + 1)); \
-		if [ "$$i" -gt 50 ]; then \
-			echo "Chat handler did not listen on $(CHAT_PORT)" >&2; \
-			exit 1; \
-		fi; \
-		sleep 0.1; \
-	done; \
-	cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$(CHAT_PORT)"
-
-chat-deploy: terraform-init ## Build chat/, push the handler image, then apply
-	$(call need-gcloud)
-	$(call need-gcloud-auth)
-	$(call need-docker)
-	$(call header,Artifact Registry chat)
-	terraform -chdir=$(terraform_dir) apply -auto-approve -input=false -var-file=$(TF_VAR_FILE) \
-		-target=google_project_service.apis \
-		-target=google_artifact_registry_repository.chat
-	$(call header,Building Chat handler image)
-	gcloud auth configure-docker $(REGION)-docker.pkg.dev --quiet
-	docker build -t $(REGION)-docker.pkg.dev/$(PROJECT)/chat/handler chat
-	docker push $(REGION)-docker.pkg.dev/$(PROJECT)/chat/handler
-	$(MAKE) terraform-apply
 
 preflight: .venv
 	$(call need-gcloud)
@@ -323,8 +276,6 @@ help:
 	$(info $(yellow)check$(reset)               ruff + unit tests)
 	$(info $(yellow)generate$(reset)            sample applications, local only)
 	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait)
-	$(info $(yellow)chat$(reset)                handler on a public HTTPS URL)
-	$(info $(yellow)chat-deploy$(reset)         build chat/, push the image, then apply)
 	$(info $(yellow)index$(reset)               import both prefixes into kb-credit-policies)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
 	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, judge 5 random filings)
