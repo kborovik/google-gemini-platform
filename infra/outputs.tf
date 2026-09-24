@@ -27,5 +27,5 @@ output "REASONING_ENGINE" {
 }
 
 output "CHAT_HOST" {
-  value = "chat.lab5.ca"
+  value = "credit-policy.ai.lab5.ca"
 }

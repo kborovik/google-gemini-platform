@@ -47,7 +47,7 @@ def test_demo_path_is_chat_and_agent_search() -> None:
         "DATA_STORE",
         "REASONING_ENGINE",
         "chat/main.py",
-        "https://chat.lab5.ca",
+        "https://credit-policy.ai.lab5.ca",
         "Cloudflare DNS-only CNAME",
         "ghs.googlehosted.com",
         "Cloud Build",

@@ -156,11 +156,9 @@ resource "google_cloud_run_v2_service" "chat" {
   ]
 }
 
-# chat.lab5.ca DNS is a Cloudflare CNAME to ghs.googlehosted.com.
-# This repo does not manage that zone.
 resource "google_cloud_run_domain_mapping" "chat" {
   location = var.region
-  name     = "chat.lab5.ca"
+  name     = "credit-policy.ai.lab5.ca"
   project  = var.project
 
   metadata {

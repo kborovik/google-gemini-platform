@@ -308,7 +308,9 @@ def test_v18_chat_handler_host() -> None:
     assert "cloudbuild.googleapis.com" in text
     assert "logging.googleapis.com" not in text
     assert 'account_id   = "chat-builder"' in text
-    assert "GCS_ONLY" in (repo_root() / "chat/cloudbuild.yaml").read_text(encoding="utf-8")
+    assert "GCS_ONLY" in (repo_root() / "chat/cloudbuild.yaml").read_text(
+        encoding="utf-8"
+    )
     assert (
         "${var.region}-docker.pkg.dev/${var.project}/chat/handler:${data.archive_file.chat.output_md5}"
         in text
@@ -322,12 +324,14 @@ def test_v18_chat_handler_host() -> None:
     )
     assert mapping is not None
     mapped = mapping.group("body")
-    assert re.search(r'name\s+=\s+"chat\.lab5\.ca"', mapped)
+    assert re.search(r'name\s+=\s+"credit-policy\.ai\.lab5\.ca"', mapped)
     assert re.search(r"location\s+=\s+var\.region", mapped)
     assert re.search(
         r"route_name\s+=\s+google_cloud_run_v2_service\.chat\.name", mapped
     )
-    assert re.search(r'output "CHAT_HOST" \{\s*value = "chat\.lab5\.ca"', text)
+    assert re.search(
+        r'output "CHAT_HOST" \{\s*value = "credit-policy\.ai\.lab5\.ca"', text
+    )
     for banned in (
         "google_compute_global_address",
         "google_compute_global_forwarding_rule",
@@ -335,6 +339,11 @@ def test_v18_chat_handler_host() -> None:
         "google_compute_target_https_proxy",
         "kronos",
         'provider "cloudflare"',
+        "cloudflare/cloudflare",
+        "terraform-cloudflare-modules",
+        'module "chat_dns"',
+        'resource "cloudflare_zone"',
+        "AI_ZONE_NS",
         "allUsers",
     ):
         assert banned not in text, banned
