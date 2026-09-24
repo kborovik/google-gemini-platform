@@ -125,6 +125,7 @@ resource "google_cloud_run_v2_service" "chat" {
   project             = var.project
   ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = false
+  custom_audiences    = ["https://credit-policy.ai.lab5.ca"]
 
   template {
     timeout         = "300s"

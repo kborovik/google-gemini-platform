@@ -307,6 +307,10 @@ def test_v18_chat_handler_host() -> None:
     assert 'ingress             = "INGRESS_TRAFFIC_ALL"' in body or re.search(
         r'ingress\s+=\s+"INGRESS_TRAFFIC_ALL"', body
     )
+    assert re.search(
+        r'custom_audiences\s+=\s+\["https://credit-policy\.ai\.lab5\.ca"\]',
+        body,
+    )
     assert re.search(r'timeout\s+=\s+"300s"', body)
     assert re.search(r"min_instance_count\s+=\s+1", body)
     assert re.search(

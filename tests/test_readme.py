@@ -48,6 +48,7 @@ def test_demo_path_is_chat_and_agent_search() -> None:
         "REASONING_ENGINE",
         "chat/main.py",
         "https://credit-policy.ai.lab5.ca",
+        "custom_audiences",
         "Cloud DNS",
         "dns.googleapis.com",
         "siteverification.googleapis.com",
