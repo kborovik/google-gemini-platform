@@ -410,9 +410,7 @@ def test_validation_failure_after_retry_writes_nothing(tmp_path: Path) -> None:
     assert not out.exists()
 
 
-def test_missing_project_endpoint_exits_2(
-    tmp_path: Path, clean_azure_env: None
-) -> None:
+def test_missing_project_endpoint_exits_2(tmp_path: Path, clean_gcp_env: None) -> None:
     result = CliRunner().invoke(
         cli,
         [

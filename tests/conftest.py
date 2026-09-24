@@ -58,12 +58,6 @@ def clean_gcp_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-@pytest.fixture
-def clean_azure_env(clean_gcp_env: None) -> None:
-    """Name kept so ported document-generation tests clear cloud env."""
-    return clean_gcp_env
-
-
 @pytest.fixture(scope="session")
 def live_env() -> dict[str, str]:
     from docgen.env import missing_required, resolve_env

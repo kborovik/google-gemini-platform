@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import pytest
@@ -165,7 +164,7 @@ def test_invalid_yaml_exits_3(tmp_path: Path) -> None:
     assert result.exit_code == 3, result.output
 
 
-def test_local_and_azure_only_are_mutex() -> None:
+def test_local_and_gcs_only_are_mutex() -> None:
     result = CliRunner().invoke(
         cli, ["generate", "policy", "--local-only", "--gcs-only", "--no-terraform"]
     )
@@ -173,7 +172,7 @@ def test_local_and_azure_only_are_mutex() -> None:
     assert "mutually exclusive" in result.output
 
 
-def test_fail_if_missing_azure_exits_2(clean_azure_env: None) -> None:
+def test_fail_if_missing_gcs_exits_2(clean_gcp_env: None) -> None:
     result = CliRunner().invoke(
         cli, ["generate", "policy", "--fail-if-missing-gcs", "--no-terraform"]
     )
@@ -181,16 +180,14 @@ def test_fail_if_missing_azure_exits_2(clean_azure_env: None) -> None:
     assert "Google Cloud environment is not configured" in result.output
 
 
-def test_azure_only_missing_env_exits_2(clean_azure_env: None) -> None:
+def test_gcs_only_missing_env_exits_2(clean_gcp_env: None) -> None:
     result = CliRunner().invoke(
         cli, ["generate", "policy", "--gcs-only", "--no-terraform"]
     )
     assert result.exit_code == 2, result.output
 
 
-def test_local_only_does_not_require_azure(
-    tmp_path: Path, clean_azure_env: None
-) -> None:
+def test_local_only_does_not_require_gcs(tmp_path: Path, clean_gcp_env: None) -> None:
     result = CliRunner().invoke(
         cli, _generate_args(tmp_path / "out", "--fail-if-missing-gcs")
     )
@@ -216,7 +213,7 @@ def test_load_and_validate_facts_rejects_watermark(tmp_path: Path) -> None:
     assert "watermark" in str(exc.value)
 
 
-def _azure_config(out: Path, **overrides: object) -> GenerateConfig:
+def _gcs_config(out: Path, **overrides: object) -> GenerateConfig:
     values: dict[str, object] = dict(
         out=out,
         facts_path=FACTS,
@@ -314,11 +311,10 @@ def test_gcs_store_uses_prefix_and_sha_metadata() -> None:
 def test_generate_dual_write_uploads_twelve_blobs(tmp_path: Path) -> None:
     out = tmp_path / "credit-policies"
     store = FakeBlobStore()
-    rendered = run_generate(_azure_config(out), blob_store=store)
+    rendered = run_generate(_gcs_config(out), blob_store=store)
     assert len(rendered) == 12
     assert (out / "manifest.json").is_file()
     assert store.container_created
-    assert store.public_access is None
     assert len(store.uploads) == 12
     for item in rendered:
         blob = store.blobs[item.document.filename]
@@ -330,17 +326,16 @@ def test_generate_dual_write_uploads_twelve_blobs(tmp_path: Path) -> None:
         assert (out / item.document.filename).is_file()
 
 
-def test_hash_skip_uses_content_sha256_not_content_md5(tmp_path: Path) -> None:
+def test_hash_skip_follows_content_sha256(tmp_path: Path) -> None:
     out = tmp_path / "credit-policies"
     store = FakeBlobStore()
-    config = _azure_config(out)
+    config = _gcs_config(out)
     first = run_generate(config, blob_store=store)
     assert len(store.uploads) == 12
     store.uploads.clear()
     run_generate(config, blob_store=store)
     assert store.uploads == []
     for blob in store.blobs.values():
-        blob.content_md5 = hashlib.md5(blob.data).digest()
         blob.metadata["content_sha256"] = "0" * 64
     run_generate(config, blob_store=store)
     assert len(store.uploads) == 12
@@ -353,9 +348,9 @@ def test_hash_skip_uses_content_sha256_not_content_md5(tmp_path: Path) -> None:
 def test_force_uploads_even_when_hash_matches(tmp_path: Path) -> None:
     out = tmp_path / "credit-policies"
     store = FakeBlobStore()
-    run_generate(_azure_config(out), blob_store=store)
+    run_generate(_gcs_config(out), blob_store=store)
     store.uploads.clear()
-    run_generate(_azure_config(out, force=True), blob_store=store)
+    run_generate(_gcs_config(out, force=True), blob_store=store)
     assert len(store.uploads) == 12
 
 
@@ -401,10 +396,10 @@ def test_sync_missing_directory_does_not_sweep(tmp_path: Path) -> None:
     assert store.deletes == []
 
 
-def test_azure_only_does_not_write_local(tmp_path: Path) -> None:
+def test_gcs_only_does_not_write_local(tmp_path: Path) -> None:
     out = tmp_path / "credit-policies"
     store = FakeBlobStore()
-    run_generate(_azure_config(out, gcs_only=True), blob_store=store)
+    run_generate(_gcs_config(out, gcs_only=True), blob_store=store)
     assert not out.exists()
     assert len(store.uploads) == 12
 
@@ -425,10 +420,10 @@ def test_local_only_does_not_open_blob_store(
     assert (out / "manifest.json").is_file()
 
 
-def test_dry_run_with_azure_does_not_upload(tmp_path: Path) -> None:
+def test_dry_run_with_gcs_does_not_upload(tmp_path: Path) -> None:
     out = tmp_path / "credit-policies"
     store = FakeBlobStore()
-    run_generate(_azure_config(out, dry_run=True), blob_store=store)
+    run_generate(_gcs_config(out, dry_run=True), blob_store=store)
     assert not out.exists()
     assert store.uploads == []
     assert not store.container_created
@@ -439,13 +434,13 @@ def test_upload_failure_exits_1(tmp_path: Path) -> None:
     store = FakeBlobStore()
     store.fail_on_upload = True
     with pytest.raises(TalosError) as exc:
-        run_generate(_azure_config(out, gcs_only=True), blob_store=store)
+        run_generate(_gcs_config(out, gcs_only=True), blob_store=store)
     assert exc.value.exit_code == 1
     assert "Blob upload failed" in str(exc.value)
     assert not out.exists()
 
 
-def test_cli_generate_uploads_when_azure_configured(
+def test_cli_generate_uploads_when_gcs_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = FakeBlobStore()

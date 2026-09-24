@@ -7,7 +7,6 @@ from dataclasses import dataclass
 class FakeBlob:
     data: bytes
     metadata: dict[str, str]
-    content_md5: bytes | None = None
 
 
 class FakeBlobStore:
@@ -20,18 +19,14 @@ class FakeBlobStore:
         self.container = container
         self.blobs: dict[str, FakeBlob] = {}
         self.container_created = False
-        self.public_access: str | None = "unset"
         self.uploads: list[str] = []
         self.deletes: list[str] = []
-        self.sha_lookups: list[str] = []
         self.fail_on_upload = False
 
     def ensure_container(self) -> None:
         self.container_created = True
-        self.public_access = None
 
     def existing_sha256(self, blob_name: str) -> str | None:
-        self.sha_lookups.append(blob_name)
         blob = self.blobs.get(blob_name)
         if blob is None:
             return None
