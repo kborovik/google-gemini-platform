@@ -11,8 +11,6 @@ from agents.credit_officer.agent import (
     INSTRUCTIONS_PATH,
     UNCONFIGURED_DATA_STORE,
     build_credit_officer,
-    credit_officer_instruction,
-    load_credit_officer_instructions,
     load_root_agent,
     resolve_data_store_id,
 )
@@ -28,12 +26,17 @@ STORE = (
 
 
 def _officer_text() -> str:
-    return credit_officer_instruction(None)
+    text = build_credit_officer(STORE).static_instruction
+    assert isinstance(text, str)
+    return text
 
 
 def test_v1_instructions_are_grounded_only() -> None:
-    text = _officer_text()
-    assert text == load_credit_officer_instructions()
+    officer = build_credit_officer(STORE)
+    text = officer.static_instruction
+    assert isinstance(text, str)
+    assert text == INSTRUCTIONS_PATH.read_text(encoding="utf-8")
+    assert officer.instruction == ""
     assert INSTRUCTIONS_PATH.is_file()
     assert INSTRUCTIONS_PATH.parent == Path(credit_officer.__file__).resolve().parent
     assert "That is not in the published policies." in text

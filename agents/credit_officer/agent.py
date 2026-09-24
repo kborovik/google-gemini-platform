@@ -12,6 +12,9 @@ CHAT_MODEL = "gemini-3.8-flash"
 INSTRUCTIONS_PATH = (
     Path(__file__).resolve().parent / "credit-policy-agent.instructions.md"
 )
+# Import must succeed when DATA_STORE is unset (unit tests, adk web).
+# Agent Runtime injects the real id before process start. Search against
+# this placeholder fails at query time; a blank id still fails in build.
 UNCONFIGURED_DATA_STORE = (
     "projects/unset/locations/global/collections/default_collection/dataStores/unset"
 )
@@ -34,22 +37,11 @@ INTERACTIVE_DESCRIPTION = (
 
 
 def chat_model() -> Gemini:
-    # gemini-3.8-flash is published on global, us, and eu. The us-east1
-    # publisher host 404s, and Agent Runtime otherwise uses its own region.
+    # gemini-3.8-flash is published on global, us, and eu.
     return Gemini(
         model=CHAT_MODEL,
         client_kwargs={"vertexai": True, "location": "global"},
     )
-
-
-def load_credit_officer_instructions() -> str:
-    return INSTRUCTIONS_PATH.read_text(encoding="utf-8")
-
-
-def credit_officer_instruction(_ctx: object) -> str:
-    # ADK injects {identifier} from session state on a string instruction.
-    # The credit-officer file uses those braces as literal id shapes.
-    return load_credit_officer_instructions()
 
 
 def resolve_data_store_id(environ: Mapping[str, str] | None = None) -> str:
@@ -67,14 +59,18 @@ def build_credit_officer(data_store_id: str) -> Agent:
         description=RETRIEVAL_DESCRIPTION,
         instruction=RETRIEVAL_INSTRUCTION,
         tools=[VertexAiSearchTool(data_store_id=store)],
+        # Both flags and no sub-agents select SingleFlow. AutoFlow would
+        # attach transfer handling.
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
     )
+    # static_instruction skips {session_state} substitution. The file uses
+    # braces as literal id shapes, such as {application_id}.
     return Agent(
         name="InteractiveAgent",
         model=chat_model(),
         description=INTERACTIVE_DESCRIPTION,
-        instruction=credit_officer_instruction,
+        static_instruction=INSTRUCTIONS_PATH.read_text(encoding="utf-8"),
         tools=[
             AgentTool(
                 agent=retrieval_agent,
