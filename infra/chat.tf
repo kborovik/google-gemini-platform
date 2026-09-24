@@ -130,6 +130,10 @@ resource "google_cloud_run_v2_service" "chat" {
     timeout         = "300s"
     service_account = google_service_account.agent.email
 
+    scaling {
+      min_instance_count = 1
+    }
+
     containers {
       image   = local.chat_image
       command = ["python", "main.py"]

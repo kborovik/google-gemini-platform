@@ -308,6 +308,7 @@ def test_v18_chat_handler_host() -> None:
         r'ingress\s+=\s+"INGRESS_TRAFFIC_ALL"', body
     )
     assert re.search(r'timeout\s+=\s+"300s"', body)
+    assert re.search(r"min_instance_count\s+=\s+1", body)
     assert re.search(
         r"service_account\s+=\s+google_service_account\.agent\.email", body
     )
