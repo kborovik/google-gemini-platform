@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -105,11 +106,37 @@ def test_v4_message_calls_stream_query_and_replies_in_thread() -> None:
     assert runtime.calls == [
         (USER, session_id(SPACE, THREAD), "What is max LTV?"),
     ]
-    assert session_id(SPACE, THREAD) == "spaces-AAA-spaces-AAA-threads-TTT"
+    assert session_id(SPACE, THREAD) == "spaces-aaa-spaces-aaa-threads-ttt"
     assert reply == {
         "text": "Max LTV is 80% (CP-RML-2026-01).",
         "thread": {"name": THREAD},
     }
+
+
+def test_v19_session_id() -> None:
+    space = "spaces/AAQA"
+    thread = "spaces/AAQA/threads/BB"
+    folded = "spaces-aaqa-spaces-aaqa-threads-bb"
+    assert session_id(space, thread) == folded
+    assert session_id(space.lower(), thread.lower()) == folded
+    assert folded == folded.lower()
+    assert len(folded) <= 63
+    assert folded[0].isalpha()
+    assert folded[-1].isalnum()
+
+    at_limit = "t" * 54
+    assert session_id("spaces/A", at_limit) == f"spaces-a-{at_limit}"
+    assert len(session_id("spaces/A", at_limit)) == 63
+
+    over = "spaces/AAQA/threads/" + ("B" * 80)
+    digest = hashlib.sha256(f"{space}\n{over}".encode()).hexdigest()
+    hashed = session_id(space, over)
+    assert hashed == f"c{digest[:62]}"
+    assert len(hashed) == 63
+    assert hashed == hashed.lower()
+    assert hashed[0].isalpha()
+    assert hashed[-1].isalnum()
+    assert hashed == session_id(space, over)
 
 
 def test_other_thread_is_a_different_session() -> None:

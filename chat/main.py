@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -18,8 +19,9 @@ STREAM_QUERY_TIMEOUT = 180.0
 _API_VERSION = "v1beta1"
 _RESOURCE = re.compile(r"^projects/([^/]+)/locations/([^/]+)/reasoningEngines/([^/]+)$")
 _ENGINE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-# Agent Runtime session ids must match ^[A-Za-z0-9_-]+$.
-_SESSION_UNSAFE = re.compile(r"[^A-Za-z0-9_-]+")
+# Sessions API: <=63, [a-z0-9-], starts with a letter, ends with a letter or number.
+_SESSION_FOLD = re.compile(r"[^a-z0-9]+")
+_SESSION_OK = re.compile(r"^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _MAX_BODY = 1_000_000
 _CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _RETRY_STATUSES = frozenset({429, 500, 502, 503})
@@ -67,11 +69,12 @@ class AgentRuntime(Protocol):
 
 
 def session_id(space: str, thread: str) -> str:
-    """Stable session id for one Chat space and thread.
-
-    The engine rejects spaces and slashes, so those characters become hyphens.
-    """
-    return _SESSION_UNSAFE.sub("-", f"{space} {thread}").strip("-")
+    """Stable session id for one Chat space and thread."""
+    folded = _SESSION_FOLD.sub("-", f"{space} {thread}".lower())
+    if _SESSION_OK.fullmatch(folded):
+        return folded
+    digest = hashlib.sha256(f"{space}\n{thread}".encode()).hexdigest()
+    return f"c{digest[:62]}"
 
 
 def stream_query_url(project: str, location: str, reasoning_engine: str) -> str:

@@ -85,7 +85,7 @@ T24|x|set `custom_audiences` on `google_cloud_run_v2_service.chat` to exactly `h
 T25|x|enable ADK Cloud Trace and Cloud Logging on credit-officer: `AdkApp` `enable_tracing=True`; env `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY`=`true`; APIs `telemetry.googleapis.com` and `logging.googleapis.com`; roles `roles/telemetry.tracesWriter` and `roles/logging.logWriter`; `agents/credit_officer/requirements.txt` imports `opentelemetry.exporter.cloud_logging`; drop test ban on `logging.googleapis.com`|V10,I.infra
 T26|x|add reasoning-engine env `OTEL_SEMCONV_STABILITY_OPT_IN`=`gen_ai_latest_experimental` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`=`EVENT_ONLY` on `google_vertex_ai_reasoning_engine.credit_officer`; tests assert both|V10,I.infra
 T27|x|grant runtime SA `roles/telemetry.metricsWriter` so OTLP metrics to `telemetry.googleapis.com/v1/metrics` stop returning 403|V10,I.infra
-T28|.|fix chat/main.py session_id to Sessions API grammar; unit-test uppercase space and over-long thread; chat image rebuild ships it|V19,B3,I.chat
+T28|x|fix chat/main.py session_id to Sessions API grammar; unit-test uppercase space and over-long thread; chat image rebuild ships it|V19,B3,I.chat
 
 ## §B BUGS
 
