@@ -82,7 +82,7 @@ T22|x|add Cloud DNS public zone `ai.lab5.ca`; every chat-app DNS record is a `go
 T23|x|verify INET_DOMAIN `ai.lab5.ca` via DNS TXT in zone `ai-lab5-ca`; web resource `deletion_policy` `ABANDON`; domain mapping depends on it; `gmake google-auth` ADC scopes include siteverification; sync tests and docs/demo.md|V16,V18,I.cmd,I.file,I.infra
 T24|x|set `custom_audiences` on `google_cloud_run_v2_service.chat` to exactly `https://credit-policy.ai.lab5.ca`; sync tests and docs/demo.md|V18,I.infra,I.file
 T25|x|enable ADK Cloud Trace and Cloud Logging on credit-officer: `AdkApp` `enable_tracing=True`; env `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY`=`true`; APIs `telemetry.googleapis.com` and `logging.googleapis.com`; roles `roles/telemetry.tracesWriter` and `roles/logging.logWriter`; `agents/credit_officer/requirements.txt` imports `opentelemetry.exporter.cloud_logging`; drop test ban on `logging.googleapis.com`|V10,I.infra
-T26|.|add reasoning-engine env `OTEL_SEMCONV_STABILITY_OPT_IN`=`gen_ai_latest_experimental` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`=`EVENT_ONLY` on `google_vertex_ai_reasoning_engine.credit_officer`; tests assert both|V10,I.infra
+T26|x|add reasoning-engine env `OTEL_SEMCONV_STABILITY_OPT_IN`=`gen_ai_latest_experimental` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`=`EVENT_ONLY` on `google_vertex_ai_reasoning_engine.credit_officer`; tests assert both|V10,I.infra
 
 ## §B BUGS
 

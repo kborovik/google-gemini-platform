@@ -38,6 +38,28 @@ def test_credit_officer_can_write_cloud_trace() -> None:
     assert "opentelemetry-exporter-gcp-logging>=1.9.0a0,<=1.12.0a0" in requirements
 
 
+def test_reasoning_engine_records_prompt_and_reply_on_log_events() -> None:
+    agent = (repo_root() / "infra/agent.tf").read_text(encoding="utf-8")
+    match = re.search(
+        r'resource "google_vertex_ai_reasoning_engine" "credit_officer" \{'
+        r"(?P<body>.*?)\n\}",
+        agent,
+        re.S,
+    )
+    assert match is not None
+    body = match.group("body")
+    assert re.search(
+        r'name\s+=\s+"OTEL_SEMCONV_STABILITY_OPT_IN"\s+'
+        r'value\s+=\s+"gen_ai_latest_experimental"',
+        body,
+    )
+    assert re.search(
+        r'name\s+=\s+"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"\s+'
+        r'value\s+=\s+"EVENT_ONLY"',
+        body,
+    )
+
+
 def test_discoveryengine_service_agent_can_stage_imports() -> None:
     text = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
     assert 'role    = "roles/discoveryengine.serviceAgent"' in text
