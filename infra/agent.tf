@@ -221,6 +221,7 @@ resource "google_vertex_ai_reasoning_engine" "credit_officer" {
     google_project_iam_member.agent_aiplatform,
     google_project_iam_member.agent_discoveryengine,
     google_project_iam_member.agent_traces,
+    google_project_iam_member.agent_metrics,
     google_project_iam_member.agent_logs,
     google_storage_bucket_iam_member.agent_viewer,
     google_service_account_iam_member.reasoning_engine_service_agent_user,

@@ -26,8 +26,10 @@ def test_credit_officer_can_write_cloud_trace() -> None:
     assert "telemetry.googleapis.com" in apis
     assert "logging.googleapis.com" in apis
     assert 'role    = "roles/telemetry.tracesWriter"' in iam
+    assert 'role    = "roles/telemetry.metricsWriter"' in iam
     assert 'role    = "roles/logging.logWriter"' in iam
     assert "google_project_iam_member.agent_traces" in agent
+    assert "google_project_iam_member.agent_metrics" in agent
     assert "google_project_iam_member.agent_logs" in agent
     assert re.search(
         r'name\s+=\s+"GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"\s+'

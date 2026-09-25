@@ -37,6 +37,15 @@ resource "google_project_iam_member" "agent_traces" {
   depends_on = [google_project_service.apis]
 }
 
+# ADK posts OTLP metrics to telemetry.googleapis.com/v1/metrics.
+resource "google_project_iam_member" "agent_metrics" {
+  project = var.project
+  role    = "roles/telemetry.metricsWriter"
+  member  = google_service_account.agent.member
+
+  depends_on = [google_project_service.apis]
+}
+
 # Cloud Logging export writes through logging.googleapis.com.
 resource "google_project_iam_member" "agent_logs" {
   project = var.project
