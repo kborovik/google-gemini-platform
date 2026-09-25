@@ -5,9 +5,11 @@ resource "google_project_service" "apis" {
     "cloudbuild.googleapis.com",
     "discoveryengine.googleapis.com",
     "dns.googleapis.com",
+    "logging.googleapis.com",
     "run.googleapis.com",
     "siteverification.googleapis.com",
     "storage.googleapis.com",
+    "telemetry.googleapis.com",
   ])
 
   project            = var.project

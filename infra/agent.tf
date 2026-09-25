@@ -201,6 +201,10 @@ resource "google_vertex_ai_reasoning_engine" "credit_officer" {
         name  = "DATA_STORE"
         value = google_discovery_engine_data_store.kb_credit_policies.name
       }
+      env {
+        name  = "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"
+        value = "true"
+      }
     }
   }
 
@@ -208,6 +212,8 @@ resource "google_vertex_ai_reasoning_engine" "credit_officer" {
     google_project_service.apis,
     google_project_iam_member.agent_aiplatform,
     google_project_iam_member.agent_discoveryengine,
+    google_project_iam_member.agent_traces,
+    google_project_iam_member.agent_logs,
     google_storage_bucket_iam_member.agent_viewer,
     google_service_account_iam_member.reasoning_engine_service_agent_user,
     google_service_account_iam_member.reasoning_engine_service_agent_token_creator,

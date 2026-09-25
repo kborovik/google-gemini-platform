@@ -16,6 +16,28 @@ def test_reasoning_engine_service_agent_can_impersonate_the_agent() -> None:
     assert 'role               = "roles/iam.serviceAccountTokenCreator"' in text
 
 
+def test_credit_officer_can_write_cloud_trace() -> None:
+    apis = (repo_root() / "infra/apis.tf").read_text(encoding="utf-8")
+    iam = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
+    agent = (repo_root() / "infra/agent.tf").read_text(encoding="utf-8")
+    requirements = (repo_root() / "agents/credit_officer/requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "telemetry.googleapis.com" in apis
+    assert "logging.googleapis.com" in apis
+    assert 'role    = "roles/telemetry.tracesWriter"' in iam
+    assert 'role    = "roles/logging.logWriter"' in iam
+    assert "google_project_iam_member.agent_traces" in agent
+    assert "google_project_iam_member.agent_logs" in agent
+    assert re.search(
+        r'name\s+=\s+"GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"\s+'
+        r'value\s+=\s+"true"',
+        agent,
+    )
+    # Distribution provides opentelemetry.exporter.cloud_logging.
+    assert "opentelemetry-exporter-gcp-logging>=1.9.0a0,<=1.12.0a0" in requirements
+
+
 def test_discoveryengine_service_agent_can_stage_imports() -> None:
     text = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
     assert 'role    = "roles/discoveryengine.serviceAgent"' in text
@@ -183,6 +205,7 @@ def test_terraform_deploys_credit_officer_reasoning_engine() -> None:
     assert [line.strip() for line in requirements.splitlines() if line.strip()] == [
         "google-adk>=2.9.2,<3",
         "google-cloud-aiplatform[agent_engines]>=1.128.0,<2",
+        "opentelemetry-exporter-gcp-logging>=1.9.0a0,<=1.12.0a0",
     ]
     methods = re.findall(
         r'\bname\s+=\s+"([^"]+)"\s+api_mode\s+=\s+"([^"]*)"',
@@ -319,7 +342,6 @@ def test_v18_chat_handler_host() -> None:
     assert re.search(r"image\s+=\s+local\.chat_image", body)
     assert 'command = ["python", "main.py"]' in body
     assert "cloudbuild.googleapis.com" in text
-    assert "logging.googleapis.com" not in text
     assert 'account_id   = "chat-builder"' in text
     assert "GCS_ONLY" in (repo_root() / "chat/cloudbuild.yaml").read_text(
         encoding="utf-8"

@@ -90,12 +90,14 @@ def load_root_agent(environ: Mapping[str, str] | None = None) -> Agent:
 def _reasoning_engine_app():
     # Agent Runtime registers query methods on the entrypoint. An LlmAgent has
     # none of them; AdkApp is the object the runtime knows how to serve.
+    # enable_tracing records the model request, the reply, and tool results
+    # on Cloud Trace spans. AdkApp omits those attributes unless this is set.
     agent = load_root_agent()
     try:
         from vertexai.agent_engines import AdkApp
     except ImportError:
         return agent
-    return AdkApp(agent=agent)
+    return AdkApp(agent=agent, enable_tracing=True)
 
 
 root_agent = _reasoning_engine_app()

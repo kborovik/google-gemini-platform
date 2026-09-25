@@ -28,6 +28,24 @@ resource "google_project_iam_member" "agent_discoveryengine" {
   depends_on = [google_project_service.apis]
 }
 
+# AdkApp enable_tracing exports OTLP spans to telemetry.googleapis.com.
+resource "google_project_iam_member" "agent_traces" {
+  project = var.project
+  role    = "roles/telemetry.tracesWriter"
+  member  = google_service_account.agent.member
+
+  depends_on = [google_project_service.apis]
+}
+
+# Cloud Logging export writes through logging.googleapis.com.
+resource "google_project_iam_member" "agent_logs" {
+  project = var.project
+  role    = "roles/logging.logWriter"
+  member  = google_service_account.agent.member
+
+  depends_on = [google_project_service.apis]
+}
+
 # Agent Runtime starts the revision as this account. Without these bindings the
 # Reasoning Engine service agent cannot mint its token, and the revision never serves.
 resource "google_service_account_iam_member" "reasoning_engine_service_agent_user" {
