@@ -55,7 +55,7 @@ default: help
 
 .PHONY: help test check generate deploy index --wait preflight e2e clean
 .PHONY: terraform terraform-config terraform-fmt terraform-init terraform-validate
-.PHONY: terraform-plan terraform-apply terraform-destroy terraform-clean terraform-show terraform-list
+.PHONY: terraform-plan terraform-apply terraform-destroy pause terraform-clean terraform-show terraform-list
 .PHONY: terraform-state-recursive terraform-state-versions terraform-state-unlock prompt
 .PHONY: google google-auth google-logout google-config
 .PHONY: release major minor patch
@@ -172,6 +172,22 @@ terraform-destroy: terraform-validate ## Destroy the workload stack
 	terraform -chdir=$(terraform_dir) apply -destroy -input=false -refresh=true -var-file=$(TF_VAR_FILE)
 	rm -f $(terraform_dir)/outputs.json
 
+# Next terraform-apply sets Chat min_instance_count back to 1.
+RAG_IDLE_REGIONS ?= us-west1 us-east4 us-south1 us-west4 europe-west1 europe-west4 asia-east1 asia-northeast1 northamerica-northeast1
+
+pause: prompt ## Unprovision idle RAG Spanner and scale Chat to zero
+	$(call need-gcloud)
+	$(call need-gcloud-auth)
+	$(call header,Unprovision idle RAG Spanner)
+	PROJECT=$(google_project) RAG_IDLE_REGIONS="$(RAG_IDLE_REGIONS)" \
+		python3 $(git_root)/scripts/pause_idle.py
+	$(call header,Scale Chat to zero)
+	gcloud run services update chat \
+		--project=$(google_project) \
+		--region=$(google_region) \
+		--min-instances=0 \
+		--quiet
+
 terraform-show:
 	$(call need-terraform)
 	terraform -chdir=$(terraform_dir) show -no-color | bat -l Terraform
@@ -284,6 +300,7 @@ help:
 	$(info $(yellow)terraform-plan$(reset)      plan in $(PROJECT))
 	$(info $(yellow)terraform-apply$(reset)     apply; write infra/outputs.json)
 	$(info $(yellow)terraform-destroy$(reset)   destroy workload stack)
+	$(info $(yellow)pause$(reset)               unprovision idle RAG Spanner and scale Chat to zero)
 	$(info $(yellow)google-auth$(reset)         log in and refresh application-default credentials)
 	$(info $(yellow)google-config$(reset)       set project, region, zone, and quota project)
 	$(info $(yellow)google-logout$(reset)       revoke gcloud credentials)
