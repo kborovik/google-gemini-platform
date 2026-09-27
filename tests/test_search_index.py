@@ -8,9 +8,14 @@ import pytest
 from docgen.constants import MIN_APPLICATION_INDEXED_ITEMS, MIN_INDEXED_ITEMS
 from docgen.env import repo_root
 from docgen.errors import TalosError
+from docgen.constants import CLIENT_APPLICATIONS_CORPUS
+from docgen.rest import RestResponse
 from docgen.search_index import (
     DATA_STORE_LOCATION,
     IndexConfig,
+    VertexSearchOps,
+    corpus_metadata_documents,
+    corpus_schema_body,
     data_store_resource,
     gcs_markdown_glob,
     import_documents_body,
@@ -41,8 +46,14 @@ class FakeSearch:
         self.done: list[tuple[bool, str | None]] = []
         self.uris: list[str] = []
 
-    def import_uris(self, data_store_id: str, uris: list[str]) -> str:
-        self.calls.append(("import", data_store_id, tuple(uris)))
+    def import_uris(
+        self,
+        data_store_id: str,
+        uris: list[str],
+        *,
+        corpus: str | None = None,
+    ) -> str:
+        self.calls.append(("import", data_store_id, tuple(uris), corpus))
         return "operations/import-1"
 
     def operation_done(self, name: str) -> tuple[bool, str | None]:
@@ -116,17 +127,42 @@ def test_index_does_not_create_the_data_store(tmp_path: Path) -> None:
 def test_import_sends_both_markdown_prefixes(tmp_path: Path) -> None:
     search = FakeSearch()
     run_index(_config(tmp_path), ops=search, echo=lambda _: None)
-    assert [call[0] for call in search.calls] == ["import"]
-    imported = next(call for call in search.calls if call[0] == "import")
-    assert imported[2] == (
-        gcs_markdown_glob("lab5-gemini-dev1-credit-docs", "credit-policies"),
-        gcs_markdown_glob("lab5-gemini-dev1-credit-docs", "client-applications"),
+    imports = [call for call in search.calls if call[0] == "import"]
+    assert len(imports) == 2
+    policy_uri = gcs_markdown_glob("lab5-gemini-dev1-credit-docs", "credit-policies")
+    application_uri = gcs_markdown_glob(
+        "lab5-gemini-dev1-credit-docs", "client-applications"
     )
-    body = import_documents_body(list(imported[2]))
-    encoded = json.dumps(body)
-    assert body["gcsSource"]["dataSchema"] == "content"
+    assert imports[0][2] == (policy_uri,)
+    assert imports[0][3] is None
+    assert imports[1][2] == (application_uri,)
+    assert imports[1][3] == CLIENT_APPLICATIONS_CORPUS
+    policy_body = import_documents_body(list(imports[0][2]))
+    encoded = json.dumps(policy_body)
+    assert policy_body["gcsSource"]["dataSchema"] == "content"
+    assert "corpus" not in encoded
     assert "rag" not in encoded.lower()
     assert "us-east5" not in encoded
+    documents = corpus_metadata_documents(
+        "lab5-gemini-dev1-credit-docs",
+        "client-applications",
+        [
+            "credit-application-CA-2.md",
+            "manifest.json",
+            "policy-pack.md",
+            "credit-application-CA-1.md",
+        ],
+        CLIENT_APPLICATIONS_CORPUS,
+    )
+    assert [item["content"]["uri"] for item in documents] == [
+        "gs://lab5-gemini-dev1-credit-docs/client-applications/credit-application-CA-1.md",
+        "gs://lab5-gemini-dev1-credit-docs/client-applications/credit-application-CA-2.md",
+    ]
+    assert {item["structData"]["corpus"] for item in documents} == {
+        CLIENT_APPLICATIONS_CORPUS
+    }
+    schema = corpus_schema_body()
+    assert schema["structSchema"]["properties"]["corpus"]["indexable"] is True
 
 
 def test_wait_polls_indexed_counts_to_the_floors(tmp_path: Path) -> None:
@@ -182,6 +218,95 @@ def test_import_error_fails(tmp_path: Path) -> None:
             clock=FakeClock(),
             echo=lambda _: None,
         )
+
+
+class _Markdown:
+    def __init__(self, names: list[str]) -> None:
+        self.names = names
+        self.uploads: list[tuple[str, str, str]] = []
+
+    def list_markdown(self, bucket: str, prefix: str) -> list[str]:
+        del bucket, prefix
+        return list(self.names)
+
+    def upload_text(self, bucket: str, object_name: str, text: str) -> None:
+        self.uploads.append((bucket, object_name, text))
+
+
+class _Rest:
+    def __init__(self, patch_status: int = 200) -> None:
+        self.patch_status = patch_status
+        self.calls: list[tuple[str, str, object]] = []
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        json_body: object = None,
+        timeout: float = 60.0,
+    ) -> RestResponse:
+        del timeout
+        self.calls.append((method, url, json_body))
+        if method == "PATCH" and self.patch_status == 404:
+            return RestResponse(404, {}, "missing")
+        return RestResponse(200, {"name": "operations/import-9"}, "")
+
+
+def test_vertex_import_stamps_corpus_on_client_applications_only() -> None:
+    markdown = _Markdown(
+        [
+            "credit-application-CA-9.md",
+            "manifest.json",
+            "policy-pack.md",
+        ]
+    )
+    rest = _Rest()
+    ops = VertexSearchOps(rest, "lab5-gemini-dev1", markdown=markdown)
+    ops.import_uris("kb-credit-policies", ["gs://bucket/credit-policies/*.md"])
+    policy_body = rest.calls[0][2]
+    assert isinstance(policy_body, dict)
+    assert policy_body["gcsSource"]["dataSchema"] == "content"
+    assert "corpus" not in json.dumps(policy_body)
+    rest.calls.clear()
+    ops.import_uris(
+        "kb-credit-policies",
+        ["gs://bucket/client-applications/*.md"],
+        corpus=CLIENT_APPLICATIONS_CORPUS,
+    )
+    assert markdown.uploads[0][0] == "bucket"
+    assert markdown.uploads[0][1] == "client-applications/_corpus.jsonl"
+    document = json.loads(markdown.uploads[0][2])
+    assert document["structData"]["corpus"] == CLIENT_APPLICATIONS_CORPUS
+    assert document["content"]["uri"].endswith("/credit-application-CA-9.md")
+    assert "manifest.json" not in markdown.uploads[0][2]
+    assert "policy-pack.md" not in markdown.uploads[0][2]
+    assert [call[0] for call in rest.calls] == ["PATCH", "POST"]
+    schema = rest.calls[0][2]
+    assert isinstance(schema, dict)
+    assert schema["structSchema"]["properties"]["corpus"]["indexable"] is True
+    imported = rest.calls[1][2]
+    assert isinstance(imported, dict)
+    assert imported["gcsSource"]["dataSchema"] == "document"
+    assert imported["gcsSource"]["inputUris"] == [
+        "gs://bucket/client-applications/_corpus.jsonl"
+    ]
+
+
+def test_corpus_schema_is_posted_when_the_default_schema_is_missing() -> None:
+    rest = _Rest(patch_status=404)
+    ops = VertexSearchOps(
+        rest,
+        "lab5-gemini-dev1",
+        markdown=_Markdown(["credit-application-CA-1.md"]),
+    )
+    ops.import_uris(
+        "kb-credit-policies",
+        ["gs://bucket/client-applications/*.md"],
+        corpus=CLIENT_APPLICATIONS_CORPUS,
+    )
+    assert [call[0] for call in rest.calls] == ["PATCH", "POST", "POST"]
+    assert "schemaId=default_schema" in rest.calls[1][1]
 
 
 def test_indexed_document_skips_error_samples() -> None:

@@ -86,7 +86,7 @@ T25|x|enable ADK Cloud Trace and Cloud Logging on credit-officer: `AdkApp` `enab
 T26|x|add reasoning-engine env `OTEL_SEMCONV_STABILITY_OPT_IN`=`gen_ai_latest_experimental` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`=`EVENT_ONLY` on `google_vertex_ai_reasoning_engine.credit_officer`; tests assert both|V10,I.infra
 T27|x|grant runtime SA `roles/telemetry.metricsWriter` so OTLP metrics to `telemetry.googleapis.com/v1/metrics` stop returning 403|V10,I.infra
 T28|x|fix chat/main.py session_id to Sessions API grammar; unit-test uppercase space and over-long thread; chat image rebuild ships it|V19,B3,I.chat
-T29|.|serve status questions from PolicyPack plus one lookup_application; publish credit-policies/policy-pack.md; stamp corpus=client-applications|V1,V3,V4,V9,V10,I.cmd,I.index,I.infra
+T29|x|serve status questions from PolicyPack plus one lookup_application; publish credit-policies/policy-pack.md; stamp corpus=client-applications|V1,V3,V4,V9,V10,I.cmd,I.index,I.infra
 
 ## §B BUGS
 

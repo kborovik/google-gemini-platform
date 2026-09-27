@@ -202,6 +202,10 @@ resource "google_vertex_ai_reasoning_engine" "credit_officer" {
         value = google_discovery_engine_data_store.kb_credit_policies.name
       }
       env {
+        name  = "POLICY_PACK_URI"
+        value = "gs://${var.project}-credit-docs/credit-policies/policy-pack.md"
+      }
+      env {
         name  = "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"
         value = "true"
       }
