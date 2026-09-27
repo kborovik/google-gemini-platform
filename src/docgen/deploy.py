@@ -47,6 +47,8 @@ def split_counts(uris: list[str]) -> tuple[int, int]:
     applications = 0
     for uri in uris:
         name = uri.rsplit("/", 1)[-1]
+        if name == POLICY_PACK_FILENAME:
+            continue
         if "client-applications" in uri or name.startswith("credit-application-"):
             applications += 1
         elif "credit-policies" in uri or name.startswith("CP-"):

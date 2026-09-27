@@ -47,6 +47,7 @@ def test_split_counts_by_prefix() -> None:
         [
             "gs://b/credit-policies/a.md",
             "gs://b/credit-policies/b.md",
+            "gs://b/credit-policies/policy-pack.md",
             "gs://b/client-applications/c.md",
         ]
     )

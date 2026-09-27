@@ -44,6 +44,7 @@ _APPLICATION_PREFIX = "credit-application-"
 _SEARCH_PAGE_SIZE = 10
 
 PackReader = Callable[[str], tuple[str, str]]
+ObjectReader = Callable[[str], str]
 Clock = Callable[[], float]
 Poster = Callable[[str, dict[str, Any]], dict[str, Any]]
 Searcher = Callable[[str], list["ApplicationHit"]]
@@ -206,6 +207,56 @@ def parse_application_hits(payload: dict[str, Any]) -> list[ApplicationHit]:
     return hits
 
 
+def quoted_search_query(query: str) -> str:
+    escaped = query.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def hit_mentions(hit: ApplicationHit, query: str) -> bool:
+    needle = query.casefold()
+    return any(
+        needle in field.casefold()
+        for field in (hit.source_name, hit.uri, hit.application_id, hit.text)
+    )
+
+
+def matching_hits(hits: list[ApplicationHit], query: str) -> list[ApplicationHit]:
+    return [hit for hit in hits if hit_mentions(hit, query)]
+
+
+def read_gcs_text(uri: str) -> str:
+    bucket_name, object_name = split_gs_uri(uri)
+    from google.cloud import storage
+
+    blob = storage.Client().bucket(bucket_name).blob(object_name)
+    return blob.download_as_bytes().decode("utf-8")
+
+
+def body_for_single_hit(
+    hits: list[ApplicationHit], reader: ObjectReader | None
+) -> list[ApplicationHit]:
+    """One surviving hit is the filing, not a search snippet."""
+    if len(hits) != 1 or reader is None:
+        return hits
+    hit = hits[0]
+    if not hit.uri.startswith("gs://"):
+        return []
+    try:
+        body = reader(hit.uri)
+    except Exception:
+        return []
+    if not body.strip():
+        return []
+    return [
+        ApplicationHit(
+            source_name=hit.source_name,
+            uri=hit.uri,
+            application_id=hit.application_id,
+            text=body,
+        )
+    ]
+
+
 def format_lookup_hits(hits: list[ApplicationHit]) -> str:
     if not hits:
         return NO_MATCH_SENTENCE
@@ -229,7 +280,7 @@ def search_client_applications(
     """Exactly one Agent Search request, filtered to client-applications."""
     send = post or _post_discovery
     body = {
-        "query": query,
+        "query": quoted_search_query(query),
         "filter": CORPUS_FILTER,
         "pageSize": _SEARCH_PAGE_SIZE,
         "contentSearchSpec": {
@@ -253,6 +304,7 @@ def build_credit_officer(
     *,
     pack: PolicyPackCache | None = None,
     searcher: Searcher | None = None,
+    object_reader: ObjectReader | None = None,
 ) -> Agent:
     store = data_store_id.strip()
     if not store:
@@ -275,7 +327,11 @@ def build_credit_officer(
         query = lookup_query(application_id, customer_name)
         if query is None:
             return NO_SEARCH_SENTENCE
-        return format_lookup_hits(bound_search(query))
+        hits = matching_hits(bound_search(query), query)
+        hits = body_for_single_hit(hits, object_reader)
+        if len(hits) == 1 and not hit_mentions(hits[0], query):
+            hits = []
+        return format_lookup_hits(hits)
 
     lookup_application.data_store_id = store  # type: ignore[attr-defined]
 
@@ -302,11 +358,15 @@ def build_credit_officer_app(
     *,
     pack: PolicyPackCache | None = None,
     searcher: Searcher | None = None,
+    object_reader: ObjectReader | None = None,
 ) -> App:
     return App(
         name="credit_officer",
         root_agent=build_credit_officer(
-            data_store_id, pack=pack, searcher=searcher
+            data_store_id,
+            pack=pack,
+            searcher=searcher,
+            object_reader=object_reader,
         ),
         context_cache_config=context_cache_config(),
     )
@@ -317,7 +377,7 @@ def load_root_agent(environ: Mapping[str, str] | None = None) -> Agent:
     store = resolve_data_store_id(env) or UNCONFIGURED_DATA_STORE
     pack = PolicyPackCache(uri=env.get("POLICY_PACK_URI", ""))
     pack.fill()
-    return build_credit_officer(store, pack=pack)
+    return build_credit_officer(store, pack=pack, object_reader=read_gcs_text)
 
 
 def _apply_pack_fill(

@@ -201,6 +201,7 @@ def test_v4_search_requests_only_client_applications() -> None:
     url, body = posts[0]
     assert url.endswith("/servingConfigs/default_search:search")
     assert STORE in url
+    assert body["query"] == '"CA-1"'
     assert body["filter"] == CORPUS_FILTER
     assert "client-applications" in str(body["filter"])
     assert "credit-policies" not in str(body["filter"])
@@ -215,6 +216,28 @@ def test_v4_search_requests_only_client_applications() -> None:
         }
     )
     assert len(parsed) == 1
+
+    reads: list[str] = []
+
+    def reader(uri: str) -> str:
+        reads.append(uri)
+        return "# Credit application CA-1\ncustomer_name: Helene Voss\nltv: 71%\n"
+
+    officer = build_credit_officer(
+        STORE, searcher=lambda query: hits, object_reader=reader
+    )
+    tool = officer.tools[0]
+    assert isinstance(tool, FunctionTool)
+    text = tool.func(application_id="CA-1")
+    assert reads == [hits[0].uri]
+    assert "customer_name: Helene Voss" in text
+    assert "ltv: 71%" in text
+    missing = build_credit_officer(
+        STORE,
+        searcher=lambda query: hits,
+        object_reader=lambda uri: (_ for _ in ()).throw(OSError(uri)),
+    )
+    assert missing.tools[0].func(application_id="CA-1") == NO_MATCH_SENTENCE
 
 
 class _Clock:

@@ -22,7 +22,7 @@ from docgen.constants import (
     POLL_INTERVAL_SECONDS,
     WAIT_TIMEOUT_SECONDS,
 )
-from docgen.deploy import local_corpus_size, split_counts
+from docgen.deploy import local_corpus_size, policy_markdown_paths, split_counts
 from docgen.env import repo_root, require_env, resolve_env
 from docgen.errors import TalosError
 from docgen.rest import RestClient, raise_for_status
@@ -226,9 +226,29 @@ def indexed_document_uri(document: dict[str, Any]) -> str:
     if isinstance(status, dict) and status.get("errorSamples"):
         return ""
     content = document.get("content")
+    uri = ""
     if isinstance(content, dict) and isinstance(content.get("uri"), str):
-        return content["uri"]
-    return ""
+        uri = content["uri"]
+    if not uri:
+        return ""
+    name = uri.rsplit("/", 1)[-1]
+    if name == POLICY_PACK_FILENAME:
+        return ""
+    if "client-applications" in uri or name.startswith("credit-application-"):
+        struct = document.get("structData")
+        corpus = struct.get("corpus") if isinstance(struct, dict) else None
+        if corpus != CLIENT_APPLICATIONS_CORPUS:
+            return ""
+    return uri
+
+
+def policy_object_uris(bucket: str, prefix: str, directory: Path) -> list[str]:
+    """The 12 policy files. `policy-pack.md` is not an indexed policy document."""
+    folder = prefix.strip("/")
+    return [
+        f"gs://{bucket}/{folder}/{path.name}"
+        for path in policy_markdown_paths(directory)
+    ]
 
 
 class GcsMarkdown:
@@ -329,6 +349,38 @@ class VertexSearchOps:
                 timeout=60.0,
             )
         raise_for_status(response, "update Agent Search corpus schema")
+        self._wait_schema_operation(response)
+
+    def _wait_schema_operation(self, response: Any) -> None:
+        payload = response.json if isinstance(response.json, dict) else {}
+        if payload.get("done") is True:
+            error = _operation_error(payload)
+            if error:
+                raise TalosError(
+                    f"Agent Search schema update failed: {error}", exit_code=1
+                )
+            return
+        if "structSchema" in payload and not payload.get("name"):
+            return
+        name = payload.get("name")
+        if not isinstance(name, str) or not name:
+            return
+        import time
+
+        deadline = time.monotonic() + WAIT_TIMEOUT_SECONDS
+        while True:
+            done, error = self.operation_done(name)
+            if error:
+                raise TalosError(
+                    f"Agent Search schema update failed: {error}", exit_code=1
+                )
+            if done:
+                return
+            if time.monotonic() >= deadline:
+                raise TalosError(
+                    "Agent Search schema update did not finish", exit_code=1
+                )
+            time.sleep(POLL_INTERVAL_SECONDS)
 
     def operation_done(self, name: str) -> tuple[bool, str | None]:
         response = self._rest.request("GET", operation_url(name), timeout=60.0)
@@ -372,7 +424,9 @@ def run_index(
     application_dir = config.application_dir or (
         root / DEFAULT_APPLICATION_OUTPUT_RELATIVE
     )
-    policy_uri = gcs_markdown_glob(config.bucket, config.policy_prefix)
+    policy_uris = policy_object_uris(
+        config.bucket, config.policy_prefix, policy_dir
+    )
     application_uri = gcs_markdown_glob(config.bucket, config.application_prefix)
     store = data_store_resource(config.project, config.data_store_id)
     local_applications = local_corpus_size(application_dir)
@@ -380,14 +434,22 @@ def run_index(
         local_applications = _assert_local_wait_ready(policy_dir, application_dir)
     if config.dry_run:
         echo(
-            f"dry-run: would import {policy_uri}, {application_uri} into {store}; "
+            f"dry-run: would import {len(policy_uris)} policy files, "
+            f"{application_uri} into {store}; "
             f"stamp corpus={CLIENT_APPLICATIONS_CORPUS} on {config.application_prefix}"
         )
         return
 
+    if not policy_uris:
+        raise TalosError(
+            f"policy corpus has no markdown files in {policy_dir}",
+            exit_code=1,
+        )
     search = ops or _default_ops(config)
-    echo(f"importing {policy_uri} into {store}")
-    policy_operation = search.import_uris(config.data_store_id, [policy_uri])
+    ticker = clock or SystemClock()
+    echo(f"importing {len(policy_uris)} policy files into {store}")
+    policy_operation = search.import_uris(config.data_store_id, policy_uris)
+    _await_operation(search, policy_operation, ticker)
     echo(
         f"importing {application_uri} into {store} "
         f"with corpus={CLIENT_APPLICATIONS_CORPUS}"
@@ -509,7 +571,11 @@ def _wait_until_indexed(
                 still.append(operation)
         pending = still
         policies, applications = split_counts(ops.list_indexed_uris(data_store_id))
-        if policies >= MIN_INDEXED_ITEMS and applications >= floor:
+        if (
+            not pending
+            and policies >= MIN_INDEXED_ITEMS
+            and applications >= floor
+        ):
             echo(f"indexed policies={policies} applications={applications}")
             return
         if clock.monotonic() >= deadline:
@@ -522,6 +588,21 @@ def _wait_until_indexed(
             echo(f"waiting for import {', '.join(pending)}")
         else:
             echo("import operations done; waiting for indexed counts")
+        clock.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _await_operation(ops: SearchOps, name: str, clock: Clock) -> None:
+    deadline = clock.monotonic() + WAIT_TIMEOUT_SECONDS
+    while True:
+        done, error = ops.operation_done(name)
+        if error:
+            raise TalosError(f"Agent Search import failed: {error}", exit_code=1)
+        if done:
+            return
+        if clock.monotonic() >= deadline:
+            raise TalosError(
+                f"Agent Search import did not finish: {name}", exit_code=1
+            )
         clock.sleep(POLL_INTERVAL_SECONDS)
 
 

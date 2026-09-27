@@ -21,6 +21,7 @@ from docgen.search_index import (
     import_documents_body,
     import_url,
     indexed_document_uri,
+    policy_object_uris,
     run_index,
 )
 
@@ -129,11 +130,15 @@ def test_import_sends_both_markdown_prefixes(tmp_path: Path) -> None:
     run_index(_config(tmp_path), ops=search, echo=lambda _: None)
     imports = [call for call in search.calls if call[0] == "import"]
     assert len(imports) == 2
-    policy_uri = gcs_markdown_glob("lab5-gemini-dev1-credit-docs", "credit-policies")
+    config = _config(tmp_path)
+    policy_uris = policy_object_uris(
+        "lab5-gemini-dev1-credit-docs", "credit-policies", config.policy_dir
+    )
     application_uri = gcs_markdown_glob(
         "lab5-gemini-dev1-credit-docs", "client-applications"
     )
-    assert imports[0][2] == (policy_uri,)
+    assert imports[0][2] == tuple(policy_uris)
+    assert "policy-pack.md" not in "".join(policy_uris)
     assert imports[0][3] is None
     assert imports[1][2] == (application_uri,)
     assert imports[1][3] == CLIENT_APPLICATIONS_CORPUS
@@ -248,6 +253,8 @@ class _Rest:
     ) -> RestResponse:
         del timeout
         self.calls.append((method, url, json_body))
+        if method == "GET":
+            return RestResponse(200, {"name": "operations/schema", "done": True}, "")
         if method == "PATCH" and self.patch_status == 404:
             return RestResponse(404, {}, "missing")
         return RestResponse(200, {"name": "operations/import-9"}, "")
@@ -281,11 +288,11 @@ def test_vertex_import_stamps_corpus_on_client_applications_only() -> None:
     assert document["content"]["uri"].endswith("/credit-application-CA-9.md")
     assert "manifest.json" not in markdown.uploads[0][2]
     assert "policy-pack.md" not in markdown.uploads[0][2]
-    assert [call[0] for call in rest.calls] == ["PATCH", "POST"]
+    assert [call[0] for call in rest.calls] == ["PATCH", "GET", "POST"]
     schema = rest.calls[0][2]
     assert isinstance(schema, dict)
     assert schema["structSchema"]["properties"]["corpus"]["indexable"] is True
-    imported = rest.calls[1][2]
+    imported = rest.calls[2][2]
     assert isinstance(imported, dict)
     assert imported["gcsSource"]["dataSchema"] == "document"
     assert imported["gcsSource"]["inputUris"] == [
@@ -305,8 +312,24 @@ def test_corpus_schema_is_posted_when_the_default_schema_is_missing() -> None:
         ["gs://bucket/client-applications/*.md"],
         corpus=CLIENT_APPLICATIONS_CORPUS,
     )
-    assert [call[0] for call in rest.calls] == ["PATCH", "POST", "POST"]
+    assert [call[0] for call in rest.calls] == ["PATCH", "POST", "GET", "POST"]
     assert "schemaId=default_schema" in rest.calls[1][1]
+
+
+def test_wait_does_not_finish_while_an_import_is_still_running(
+    tmp_path: Path,
+) -> None:
+    search = FakeSearch()
+    search.done = [(False, None)]
+    search.uris = _indexed_uris(MIN_INDEXED_ITEMS, MIN_APPLICATION_INDEXED_ITEMS)
+    clock = FakeClock()
+    run_index(
+        _config(tmp_path, wait=True),
+        ops=search,
+        clock=clock,
+        echo=lambda _: None,
+    )
+    assert clock.sleeps
 
 
 def test_indexed_document_skips_error_samples() -> None:
@@ -322,4 +345,31 @@ def test_indexed_document_skips_error_samples() -> None:
             }
         )
         == ""
+    )
+    assert (
+        indexed_document_uri(
+            {"content": {"uri": "gs://b/credit-policies/policy-pack.md"}}
+        )
+        == ""
+    )
+    assert (
+        indexed_document_uri(
+            {
+                "content": {
+                    "uri": "gs://b/client-applications/credit-application-CA-1.md"
+                }
+            }
+        )
+        == ""
+    )
+    assert (
+        indexed_document_uri(
+            {
+                "content": {
+                    "uri": "gs://b/client-applications/credit-application-CA-1.md"
+                },
+                "structData": {"corpus": "client-applications"},
+            }
+        )
+        == "gs://b/client-applications/credit-application-CA-1.md"
     )

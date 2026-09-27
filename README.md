@@ -12,7 +12,7 @@ This is the same demo as [kborovik/azure-ai-foundry](https://github.com/kborovik
 
 ## How it works
 
-The officer writes in Google Chat. A thin handler forwards the message to the agent on Agent Runtime. The agent searches one Agent Search data store that holds the policies and the sample applications, then answers in the same thread. Agent Search owns the document embeddings.
+The officer writes in Google Chat. A thin handler forwards the message to the agent on Agent Runtime. The agent already holds the twelve published policies. A status question looks up one sample application in Agent Search, then the agent answers in the same thread.
 
 ### Question path
 
@@ -23,16 +23,14 @@ sequenceDiagram
   participant Handler as Chat handler
   participant Runtime as Agent Runtime
   participant Agent as InteractiveAgent
-  participant Search as RetrievalAgent
   participant Store as Agent Search
   Officer->>Chat: Ask in the thread
   Chat->>Handler: MESSAGE
   Handler->>Runtime: Forward the question
   Runtime->>Agent: Run the credit officer
-  Agent->>Search: Look up policy and the filing
-  Search->>Store: Search the data store
-  Store-->>Search: Passages and source names
-  Search-->>Agent: Retrieved passages
+  Note over Agent: Policies are already in context
+  Agent->>Store: Look up one application
+  Store-->>Agent: Filing and source name
   Agent-->>Runtime: Cited answer
   Runtime-->>Handler: Cited answer
   Handler-->>Chat: Reply in the same thread
@@ -43,10 +41,10 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-  A[Credit officer<br/>asks in Google Chat] --> B[Agent Runtime]
-  B --> C[Agent Search]
-  C --> D[Policy question:<br/>cited answer, or not in the published policies]
-  C --> E[Named application:<br/>cited accepted, rejected, or missing-data]
+  A[Credit officer<br/>asks in Google Chat] --> B[Agent Runtime<br/>policies in context]
+  B --> C[Policy question:<br/>cited answer, or not in the published policies]
+  B --> D[Named application:<br/>one Agent Search lookup]
+  D --> E[Cited accepted, rejected, or missing-data]
 ```
 
 The agent does two jobs:
@@ -56,7 +54,7 @@ The agent does two jobs:
 
 ## Design
 
-Two agents share one model, `gemini-3.8-flash`. InteractiveAgent holds the credit-officer instructions and calls RetrievalAgent. RetrievalAgent searches the one data store. Published policy is the source of truth. Sample applications are the files being judged.
+One agent, InteractiveAgent, uses `gemini-3.8-flash`. The twelve published policies are one pack in its context. A status question looks up one application in Agent Search. Published policy is the source of truth. Sample applications are the files being judged.
 
 ### The pieces
 
@@ -72,7 +70,6 @@ flowchart TB
 
   subgraph Runtime["Agent Runtime"]
     Interactive[InteractiveAgent]
-    Retrieval[RetrievalAgent]
   end
 
   subgraph Search["Agent Search"]
@@ -86,9 +83,8 @@ flowchart TB
 
   Officer --> Chat
   Chat --> Interactive
-  Interactive --> Retrieval
-  Retrieval --> Store
-  Store --> Pol
+  Pol --> Interactive
+  Interactive --> Store
   Store --> Apps
 ```
 
@@ -101,5 +97,5 @@ Policies live in this repository. Sample applications are generated for the demo
 | `infra/` | Terraform: APIs, document bucket, agent service account, Agent Runtime |
 | `corpus/` | Policy facts and templates, plus the application-generation prompts |
 | `data/credit-policies/` | The twelve rendered policy documents |
-| `agents/credit_officer/` | InteractiveAgent and RetrievalAgent |
+| `agents/credit_officer/` | InteractiveAgent; policies load as one pack |
 | `src/docgen/` | `docgen`: generate documents and upload them |
