@@ -26,6 +26,7 @@ from agents.credit_officer.agent import (
     format_lookup_hits,
     load_root_agent,
     parse_application_hits,
+    gcs_bearer_headers,
     resolve_data_store_id,
     search_client_applications,
 )
@@ -175,6 +176,12 @@ def test_v4_only_interactive_agent_looks_up_one_application() -> None:
     copy.deepcopy(officer)
 
 
+def test_v4_gcs_read_does_not_send_a_quota_project() -> None:
+    headers = gcs_bearer_headers("token")
+    assert headers == {"Authorization": "Bearer token"}
+    assert "x-goog-user-project" not in headers
+
+
 def test_v4_search_requests_only_client_applications() -> None:
     posts: list[tuple[str, dict[str, object]]] = []
 
@@ -204,6 +211,10 @@ def test_v4_search_requests_only_client_applications() -> None:
     assert body["filter"] == CORPUS_FILTER
     assert "client-applications" in str(body["filter"])
     assert "credit-policies" not in str(body["filter"])
+    spec = body["contentSearchSpec"]
+    assert isinstance(spec, dict)
+    assert spec["snippetSpec"] == {"returnSnippet": True, "maxSnippetCount": 5}
+    assert "extractiveContentSpec" not in spec
     assert hits[0].application_id == "CA-1"
     assert hits[0].text == "ltv: 71%"
     parsed = parse_application_hits(
@@ -320,3 +331,4 @@ def test_v7_chat_model_does_not_set_embeddings() -> None:
     assert "outputs.json" not in source
     assert "pyproject.toml" not in source
     assert "AdkApp(app=app, enable_tracing=True)" in source
+    assert "object_reader=read_gcs_text" in source

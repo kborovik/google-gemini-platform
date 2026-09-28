@@ -89,7 +89,7 @@ class PolicyPackCache:
         try:
             text, digest = self._reader(self.uri)
         except Exception:
-            self._filled_at = now
+            # A failed read keeps the last fill and retries on the next turn.
             return self.text
         digest = digest.strip().lower()
         if digest != self.sha256:
@@ -134,15 +134,54 @@ def split_gs_uri(uri: str) -> tuple[str, str]:
     return bucket, name
 
 
+def gcs_bearer_headers(token: str) -> dict[str, str]:
+    """Authorization only.
+
+    A quota project header requires serviceusage.services.use. The agent
+    service account has objectViewer and does not have that permission.
+    """
+    return {"Authorization": f"Bearer {token}"}
+
+
+def gcs_object_url(bucket_name: str, object_name: str, *, media: bool) -> str:
+    quoted = urllib.parse.quote(object_name, safe="")
+    url = f"https://storage.googleapis.com/storage/v1/b/{bucket_name}/o/{quoted}"
+    if media:
+        return url + "?alt=media"
+    return url
+
+
+def gcs_get(url: str) -> bytes:
+    import google.auth
+    from google.auth.transport.requests import Request
+
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    credentials.refresh(Request())
+    request = urllib.request.Request(
+        url,
+        headers=gcs_bearer_headers(credentials.token or ""),
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"GCS read failed: HTTP {exc.code} {detail}") from exc
+
+
 def read_policy_pack(uri: str) -> tuple[str, str]:
     """One object read. Hash is metadata content_sha256, else the UTF-8 bytes."""
     bucket_name, object_name = split_gs_uri(uri)
-    from google.cloud import storage
-
-    blob = storage.Client().bucket(bucket_name).blob(object_name)
-    blob.reload()
-    data = blob.download_as_bytes()
-    metadata = blob.metadata or {}
+    meta = json.loads(
+        gcs_get(gcs_object_url(bucket_name, object_name, media=False)).decode("utf-8")
+    )
+    data = gcs_get(gcs_object_url(bucket_name, object_name, media=True))
+    metadata = meta.get("metadata") if isinstance(meta, dict) else None
+    if not isinstance(metadata, dict):
+        metadata = {}
     digest = str(metadata.get("content_sha256") or "").strip().lower()
     if not digest:
         digest = hashlib.sha256(data).hexdigest()
@@ -223,10 +262,7 @@ def matching_hits(hits: list[ApplicationHit], query: str) -> list[ApplicationHit
 
 def read_gcs_text(uri: str) -> str:
     bucket_name, object_name = split_gs_uri(uri)
-    from google.cloud import storage
-
-    blob = storage.Client().bucket(bucket_name).blob(object_name)
-    return blob.download_as_bytes().decode("utf-8")
+    return gcs_get(gcs_object_url(bucket_name, object_name, media=True)).decode("utf-8")
 
 
 def body_for_single_hit(
@@ -282,9 +318,9 @@ def search_client_applications(
         "query": quoted_search_query(query),
         "filter": CORPUS_FILTER,
         "pageSize": _SEARCH_PAGE_SIZE,
+        # extractiveContentSpec is Enterprise edition. This store is standard.
         "contentSearchSpec": {
             "snippetSpec": {"returnSnippet": True, "maxSnippetCount": 5},
-            "extractiveContentSpec": {"maxExtractiveSegmentCount": 1},
         },
     }
     payload = send(_search_url(data_store_id), body)
@@ -467,9 +503,11 @@ def _reasoning_engine_app():
     # on Cloud Trace spans. AdkApp omits those attributes unless this is set.
     # Context cache holds the static prefix when it meets the model minimum.
     # A cache miss still sends the last PolicyPack fill.
+    # One hit is the filing in GCS. A snippet is only the identity section.
     app = build_credit_officer_app(
         resolve_data_store_id() or UNCONFIGURED_DATA_STORE,
         pack=PolicyPackCache(uri=os.environ.get("POLICY_PACK_URI", "")),
+        object_reader=read_gcs_text,
     )
     try:
         from vertexai.agent_engines import AdkApp
