@@ -38,12 +38,16 @@ _ENGINE_ENV = (
 )
 
 
+ACK_TEXT = "Request received."
+
+
 def chat_message_event(
     user_text: str,
     *,
     thread: str,
     space: str = _E2E_SPACE,
     user: str = _E2E_USER,
+    message_name: str | None = None,
 ) -> dict[str, Any]:
     """Google Chat MESSAGE the public handler accepts."""
     return {
@@ -51,6 +55,7 @@ def chat_message_event(
         "user": {"name": user, "type": "HUMAN"},
         "space": {"name": space},
         "message": {
+            "name": message_name or f"{thread}/messages/e2e",
             "text": user_text,
             "argumentText": user_text,
             "sender": {"name": user, "type": "HUMAN"},
@@ -58,6 +63,18 @@ def chat_message_event(
             "thread": {"name": thread},
         },
     }
+
+
+def follow_up_text(messages: list[Mapping[str, Any]]) -> str:
+    """Officer, help, or error text from Chat. The HTTP body is only the ack."""
+    texts: list[str] = []
+    for message in messages:
+        text = message.get("text")
+        if isinstance(text, str) and text.strip() and text.strip() != ACK_TEXT:
+            texts.append(text.strip())
+    if not texts:
+        raise AssertionError("chat follow-up message is missing")
+    return texts[-1]
 
 
 def gcloud_identity_token() -> str:
@@ -89,6 +106,7 @@ def post_chat_message(
     thread: str,
     space: str = _E2E_SPACE,
     user: str = _E2E_USER,
+    message_name: str | None = None,
 ) -> dict[str, Any]:
     """POST one Chat MESSAGE to the public handler and return its JSON body."""
     waits = (0.0, *_QUOTA_RETRY_WAITS)
@@ -96,7 +114,13 @@ def post_chat_message(
     for attempt, wait in enumerate(waits):
         if wait:
             time.sleep(wait)
-        body = _post_chat_once(user_text, thread=thread, space=space, user=user)
+        body = _post_chat_once(
+            user_text,
+            thread=thread,
+            space=space,
+            user=user,
+            message_name=message_name,
+        )
         if not quota_exhausted(body) or attempt == len(waits) - 1:
             return body
     assert body is not None
@@ -109,6 +133,7 @@ def _post_chat_once(
     thread: str,
     space: str,
     user: str,
+    message_name: str | None = None,
 ) -> dict[str, Any]:
     try:
         response = requests.post(
@@ -117,7 +142,13 @@ def _post_chat_once(
                 "Authorization": f"Bearer {gcloud_identity_token()}",
                 "Content-Type": "application/json",
             },
-            json=chat_message_event(user_text, thread=thread, space=space, user=user),
+            json=chat_message_event(
+                user_text,
+                thread=thread,
+                space=space,
+                user=user,
+                message_name=message_name,
+            ),
             timeout=CHAT_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
@@ -135,20 +166,82 @@ def _post_chat_once(
 
 
 def invoke_agent(env: dict[str, str], user_text: str) -> str:
-    """Ask the deployed officer through https://credit-policy.ai.lab5.ca."""
+    """Ask the deployed officer. The judgement is the Chat follow-up, not the ack."""
     if not env.get("GOOGLE_CLOUD_PROJECT"):
         pytest.fail("GOOGLE_CLOUD_PROJECT is not set")
     thread = f"{_E2E_SPACE}/threads/{uuid.uuid4().hex}"
-    body = post_chat_message(user_text, thread=thread)
-    text = body.get("text")
-    if not isinstance(text, str) or not text.strip():
-        pytest.fail(f"chat host returned no text: {body}")
+    message_name = f"{thread}/messages/{uuid.uuid4().hex}"
+    body = post_chat_message(user_text, thread=thread, message_name=message_name)
+    ack = body.get("text")
+    if ack != ACK_TEXT:
+        pytest.fail(f"chat host ack was not {ACK_TEXT!r}: {body}")
+    text = read_follow_up(space=_E2E_SPACE, thread=thread)
+    if quota_exhausted({"text": text}):
+        pytest.fail(f"chat follow-up exhausted quota: {text}")
     print_agent_turn(
         user_text,
         text,
         surface="google_cloud_run_v2_service.chat",
     )
     return text
+
+
+def read_follow_up(
+    *,
+    space: str,
+    thread: str,
+    timeout: float = 200.0,
+) -> str:
+    """Poll spaces.messages.list until the worker's follow-up is present."""
+    deadline = time.monotonic() + timeout
+    last_error = "chat follow-up message is missing"
+    while True:
+        try:
+            return follow_up_text(list_thread_messages(space=space, thread=thread))
+        except AssertionError as exc:
+            last_error = str(exc)
+        if time.monotonic() >= deadline:
+            pytest.fail(f"follow-up message not posted: {last_error}")
+        time.sleep(2.0)
+
+
+def list_thread_messages(*, space: str, thread: str) -> list[dict[str, Any]]:
+    try:
+        response = requests.get(
+            f"https://chat.googleapis.com/v1/{space}/messages",
+            headers={"Authorization": f"Bearer {_chat_bot_token()}"},
+            params={"filter": f'thread.name = "{thread}"', "pageSize": 50},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise AssertionError(f"spaces.messages.list failed: {exc}") from exc
+    if response.status_code != 200:
+        raise AssertionError(
+            f"spaces.messages.list returned {response.status_code}: "
+            f"{response.text[:500]}"
+        )
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise AssertionError("spaces.messages.list returned non-JSON") from exc
+    messages = body.get("messages") if isinstance(body, dict) else None
+    if not isinstance(messages, list):
+        return []
+    return [item for item in messages if isinstance(item, dict)]
+
+
+def _chat_bot_token() -> str:
+    import google.auth
+    import google.auth.transport.requests
+
+    credentials, _detected = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/chat.bot"]
+    )
+    credentials.refresh(google.auth.transport.requests.Request())
+    token = getattr(credentials, "token", None)
+    if not isinstance(token, str) or not token:
+        pytest.fail("chat.bot token was not issued")
+    return token
 
 
 def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:

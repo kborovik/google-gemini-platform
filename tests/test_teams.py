@@ -9,12 +9,12 @@ import uuid
 
 import pytest
 
-from tests.live_support import post_chat_message
+from tests.live_support import ACK_TEXT, post_chat_message, read_follow_up
 
 pytestmark = [pytest.mark.teams, pytest.mark.timeout(300)]
 
 
-def test_message_calls_deployed_engine(live_env: dict[str, str]) -> None:
+def test_message_ack_then_reads_the_follow_up(live_env: dict[str, str]) -> None:
     if not live_env.get("GOOGLE_CLOUD_PROJECT"):
         pytest.skip("GOOGLE_CLOUD_PROJECT is not set")
     space = "spaces/live"
@@ -25,6 +25,11 @@ def test_message_calls_deployed_engine(live_env: dict[str, str]) -> None:
         thread=thread,
         space=space,
         user="users/live",
+        message_name=f"{thread}/messages/{uuid.uuid4().hex}",
     )
     assert reply["thread"] == {"name": thread}
-    assert str(reply["text"]).strip()
+    assert reply["text"] == ACK_TEXT
+    follow_up = read_follow_up(space=space, thread=thread)
+    assert follow_up != ACK_TEXT
+    assert "CA-{YYYYMMDD}-{unix_ms}" in follow_up
+    assert "CA-20260115-1736899200123" in follow_up

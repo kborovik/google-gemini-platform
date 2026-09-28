@@ -320,7 +320,8 @@ def test_v8_cloud_run_chat_and_registry_use_workload_region() -> None:
     text = _infra_text()
     assert "run.googleapis.com" in text
     assert "artifactregistry.googleapis.com" in text
-    assert "chat.googleapis.com" not in text
+    assert "chat.googleapis.com" in text
+    assert "cloudtasks.googleapis.com" in text
     assert "us-east5" not in text
     for kind in (
         'resource "google_cloud_run_v2_service" "chat"',
@@ -341,9 +342,21 @@ def test_v16_chat_invoker_is_a_literal() -> None:
     )
     assert names == ["project", "region"]
     iam = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
-    assert 'role     = "roles/run.invoker"' in iam
+    assert iam.count('role     = "roles/run.invoker"') == 2
     assert 'member   = "serviceAccount:chat@system.gserviceaccount.com"' in iam
-    assert "allUsers" not in _infra_text()
+    assert "member   = google_service_account.chat_tasks.member" in iam
+    infra = _infra_text()
+    assert "allUsers" not in infra
+    assert 'account_id   = "chat-tasks"' in infra
+    assert 'name     = "${var.project}-chat"' in infra
+    queue = re.search(
+        r'resource "google_cloud_tasks_queue" "chat" \{(?P<body>.*?)\n\}',
+        infra,
+        re.S,
+    )
+    assert queue is not None
+    assert re.search(r"location\s+=\s+var\.region", queue.group("body"))
+    assert 'role     = "roles/cloudtasks.enqueuer"' in infra
 
 
 def test_v18_chat_handler_host() -> None:

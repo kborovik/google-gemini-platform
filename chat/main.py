@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Protocol
+from urllib.parse import quote
 
 CLASS_METHOD = "async_stream_query"
 STREAM_QUERY_TIMEOUT = 180.0
@@ -24,6 +26,7 @@ _SESSION_FOLD = re.compile(r"[^a-z0-9]+")
 _SESSION_OK = re.compile(r"^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _MAX_BODY = 1_000_000
 _CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+_CHAT_BOT_SCOPE = "https://www.googleapis.com/auth/chat.bot"
 _RETRY_STATUSES = frozenset({429, 500, 502, 503})
 _RETRY_ATTEMPTS = 4
 _HANDLER_ENV = (
@@ -31,6 +34,21 @@ _HANDLER_ENV = (
     "GOOGLE_CLOUD_LOCATION",
     "REASONING_ENGINE",
 )
+# Public host. Audience matches Cloud Run custom_audiences. No trailing slash.
+CHAT_URL = "https://credit-policy.ai.lab5.ca"
+ACK_TEXT = "Request received."
+ENQUEUE_FAILED_TEXT = "Enqueue failed."
+HELP_TEXT = (
+    "A credit application id is required. "
+    "Format: CA-{YYYYMMDD}-{unix_ms}. "
+    "Example: CA-20260115-1736899200123."
+)
+OFFICER_ERROR_TEXT = "The credit officer could not complete that request."
+CHAT_SYSTEM_ACCOUNT = "chat@system.gserviceaccount.com"
+_JUDGE_PATH = "/tasks/judge"
+_APPLICATION_ID = re.compile(r"(?<![A-Za-z0-9])CA-\d{8}-\d+(?![A-Za-z0-9])")
+_TASK_ID_CHARS = re.compile(r"[^A-Za-z0-9_-]")
+_CHAT_API = "https://chat.googleapis.com/v1"
 
 
 class HandlerError(Exception):
@@ -66,6 +84,88 @@ class RestClient(Protocol):
 
 class AgentRuntime(Protocol):
     def stream_query(self, *, user_id: str, session_id: str, message: str) -> str: ...
+
+
+class TaskEnqueuer(Protocol):
+    def enqueue(self, *, task_id: str, payload: Mapping[str, Any]) -> None: ...
+
+
+class ChatPoster(Protocol):
+    def create_message(
+        self,
+        *,
+        parent: str,
+        thread: str,
+        text: str,
+        request_id: str,
+    ) -> Mapping[str, Any]: ...
+
+
+def queue_name(project: str) -> str:
+    return f"{project}-chat"
+
+
+def tasks_invoker_email(project: str) -> str:
+    return f"chat-tasks@{project}.iam.gserviceaccount.com"
+
+
+def application_ids(text: str) -> list[str]:
+    """Distinct CA-{YYYYMMDD}-{unix_ms} ids in first-seen order."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _APPLICATION_ID.finditer(text):
+        value = match.group(0)
+        if value in seen:
+            continue
+        seen.add(value)
+        found.append(value)
+    return found
+
+
+def task_id_from_message(message_name: str) -> str:
+    """Cloud Tasks id derived from the Chat message resource name."""
+    cleaned = _TASK_ID_CHARS.sub("_", message_name.strip())
+    if not cleaned or len(cleaned) > 500:
+        raise HandlerError("Chat message name cannot be a task id.", exit_code=1)
+    return cleaned
+
+
+def outcome_request_id(message_name: str, outcome: str) -> str:
+    """Stable Chat requestId for one message and one outcome."""
+    digest = hashlib.sha256(f"{outcome}\n{message_name}".encode()).hexdigest()
+    return f"{outcome}-{digest[:40]}"
+
+
+def list_ids_text(ids: list[str]) -> str:
+    listed = ", ".join(ids)
+    return f"More than one credit application id matched: {listed}. No judgement."
+
+
+def task_http_body(
+    config: ChatHandlerConfig, task_id: str, payload: Mapping[str, Any]
+) -> dict[str, Any]:
+    project = config.project
+    location = config.location
+    queue = queue_name(project)
+    name = f"projects/{project}/locations/{location}/queues/{queue}/tasks/{task_id}"
+    encoded = base64.b64encode(
+        json.dumps(payload, separators=(",", ":")).encode()
+    ).decode("ascii")
+    return {
+        "task": {
+            "name": name,
+            "httpRequest": {
+                "httpMethod": "POST",
+                "url": f"{CHAT_URL}{_JUDGE_PATH}",
+                "headers": {"Content-Type": "application/json"},
+                "body": encoded,
+                "oidcToken": {
+                    "serviceAccountEmail": tasks_invoker_email(project),
+                    "audience": CHAT_URL,
+                },
+            },
+        }
+    }
 
 
 def session_id(space: str, thread: str) -> str:
@@ -142,10 +242,15 @@ def bind_address(argv: list[str] | None, env: Mapping[str, str]) -> tuple[str, i
 
 class RequestsRest:
     def __init__(
-        self, credentials: Any | None = None, *, quota_project: str | None = None
+        self,
+        credentials: Any | None = None,
+        *,
+        quota_project: str | None = None,
+        scopes: list[str] | None = None,
     ) -> None:
         self._credentials = credentials
         self._quota_project = quota_project
+        self._scopes = scopes or [_CLOUD_PLATFORM_SCOPE]
 
     def request(
         self,
@@ -196,7 +301,7 @@ class RequestsRest:
             import google.auth
 
             credentials, _detected = google.auth.default(
-                scopes=[_CLOUD_PLATFORM_SCOPE],
+                scopes=self._scopes,
                 quota_project_id=self._quota_project,
             )
             self._credentials = credentials
@@ -307,33 +412,108 @@ def model_text(payload: str) -> str:
     return "".join(partials).strip()
 
 
-def handle_chat_event(event: dict[str, Any], runtime: AgentRuntime) -> dict[str, Any]:
-    if event.get("type") != "MESSAGE":
+class CloudTasksEnqueuer:
+    def __init__(
+        self, config: ChatHandlerConfig, client: RestClient | None = None
+    ) -> None:
+        self._config = config
+        self._client = client
+
+    def enqueue(self, *, task_id: str, payload: Mapping[str, Any]) -> None:
+        if self._client is None:
+            self._client = RequestsRest(quota_project=self._config.project)
+        project = self._config.project
+        location = self._config.location
+        url = (
+            "https://cloudtasks.googleapis.com/v2/"
+            f"projects/{project}/locations/{location}/"
+            f"queues/{queue_name(project)}/tasks"
+        )
+        response = self._client.request(
+            "POST",
+            url,
+            json_body=task_http_body(self._config, task_id, payload),
+            timeout=30.0,
+        )
+        # A second delivery of the same message id is already queued.
+        if response.status_code == 409:
+            return
+        raise_for_status(response, "Cloud Tasks enqueue")
+
+
+class RestChatPoster:
+    """spaces.messages.create as credit-policy-agent with the chat.bot scope."""
+
+    def __init__(
+        self, config: ChatHandlerConfig, client: RestClient | None = None
+    ) -> None:
+        self._config = config
+        self._client = client
+
+    def create_message(
+        self,
+        *,
+        parent: str,
+        thread: str,
+        text: str,
+        request_id: str,
+    ) -> Mapping[str, Any]:
+        if self._client is None:
+            self._client = RequestsRest(
+                quota_project=self._config.project,
+                scopes=[_CHAT_BOT_SCOPE],
+            )
+        url = (
+            f"{_CHAT_API}/{parent}/messages"
+            f"?requestId={quote(request_id, safe='')}"
+            "&messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"
+        )
+        response = self._client.request(
+            "POST",
+            url,
+            json_body={"text": text, "thread": {"name": thread}},
+            timeout=30.0,
+        )
+        raise_for_status(response, "spaces.messages.create")
+        if isinstance(response.json, dict):
+            return response.json
         return {}
+
+
+def http_reply(body: bytes, tasks: TaskEnqueuer) -> tuple[int, dict[str, Any]]:
+    try:
+        event = json.loads(body)
+    except json.JSONDecodeError:
+        return 400, {"text": "Invalid JSON."}
+    if not isinstance(event, dict):
+        return 400, {"text": "Chat event must be a JSON object."}
+    if event.get("type") != "MESSAGE":
+        return 200, {}
     message = event.get("message")
     if not isinstance(message, dict):
-        return _note(_thread_name(event), "Chat event is missing the message.")
+        return _enqueue_failed()
     sender = message.get("sender")
     if isinstance(sender, dict) and sender.get("type") == "BOT":
-        return {}
-    user = _user_id(event)
+        return 200, {}
     space, thread = _space_and_thread(event)
-    if not user or not space or not thread:
-        return _note(thread, "Chat event is missing the user, space, or thread.")
-    question = _question(message)
-    if not question:
-        return _note(thread, "Send a question.")
-    answer = runtime.stream_query(
-        user_id=user,
-        session_id=session_id(space, thread),
-        message=question,
-    )
-    if not answer:
-        answer = "The agent returned no text."
-    return {"text": answer, "thread": {"name": thread}}
+    message_name = _message_name(message)
+    if not message_name or not space or not thread:
+        return _enqueue_failed()
+    try:
+        tasks.enqueue(task_id=task_id_from_message(message_name), payload=event)
+    except HandlerError:
+        return _enqueue_failed()
+    return 200, {"text": ACK_TEXT, "thread": {"name": thread}}
 
 
-def http_reply(body: bytes, runtime: AgentRuntime) -> tuple[int, dict[str, Any]]:
+def http_judge(
+    body: bytes,
+    runtime: AgentRuntime,
+    poster: ChatPoster,
+    headers: Mapping[str, str],
+) -> tuple[int, dict[str, Any]]:
+    if caller_email(headers) == CHAT_SYSTEM_ACCOUNT:
+        return 403, {"text": "Forbidden."}
     try:
         event = json.loads(body)
     except json.JSONDecodeError:
@@ -341,12 +521,75 @@ def http_reply(body: bytes, runtime: AgentRuntime) -> tuple[int, dict[str, Any]]
     if not isinstance(event, dict):
         return 400, {"text": "Chat event must be a JSON object."}
     try:
-        return 200, handle_chat_event(event, runtime)
-    except HandlerError as exc:
-        return 200, _note(_thread_name(event), str(exc))
+        judge_event(event, runtime, poster)
+    except HandlerError:
+        return 500, {}
+    return 200, {}
 
 
-def serve(runtime: AgentRuntime, host: str, port: int) -> ThreadingHTTPServer:
+def judge_event(
+    event: Mapping[str, Any], runtime: AgentRuntime, poster: ChatPoster
+) -> None:
+    message = event.get("message")
+    if not isinstance(message, dict):
+        raise HandlerError("Chat event is missing the message.")
+    space, thread = _space_and_thread(event)
+    message_name = _message_name(message)
+    if not message_name or not space or not thread:
+        raise HandlerError("Chat event is missing the message, space, or thread.")
+    question = _question(message)
+    ids = application_ids(question)
+    if not ids:
+        _post(
+            poster,
+            space=space,
+            thread=thread,
+            text=HELP_TEXT,
+            request_id=outcome_request_id(message_name, "help"),
+        )
+        return
+    if len(ids) > 1:
+        _post(
+            poster,
+            space=space,
+            thread=thread,
+            text=list_ids_text(ids),
+            request_id=outcome_request_id(message_name, "list"),
+        )
+        return
+    user = _user_id(event)
+    if not user:
+        _post_officer_failure(poster, space, thread, message_name)
+        return
+    try:
+        answer = runtime.stream_query(
+            user_id=user,
+            session_id=session_id(space, thread),
+            message=question,
+        )
+    except HandlerError:
+        _post_officer_failure(poster, space, thread, message_name)
+        return
+    if not answer.strip():
+        _post_officer_failure(poster, space, thread, message_name)
+        return
+    _post(
+        poster,
+        space=space,
+        thread=thread,
+        text=answer,
+        request_id=outcome_request_id(message_name, "judgement"),
+    )
+
+
+def serve(
+    runtime: AgentRuntime,
+    host: str,
+    port: int,
+    *,
+    tasks: TaskEnqueuer,
+    poster: ChatPoster,
+) -> ThreadingHTTPServer:
     class _Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             length_header = self.headers.get("Content-Length")
@@ -358,7 +601,11 @@ def serve(runtime: AgentRuntime, host: str, port: int) -> ThreadingHTTPServer:
                 self._send(400, {"text": "Invalid JSON."})
                 return
             raw = self.rfile.read(length) if length else b""
-            status, payload = http_reply(raw, runtime)
+            path = self.path.split("?", 1)[0].rstrip("/") or "/"
+            if path == _JUDGE_PATH:
+                status, payload = http_judge(raw, runtime, poster, self.headers)
+            else:
+                status, payload = http_reply(raw, tasks)
             self._send(status, payload)
 
         def log_message(self, format: str, *args: object) -> None:
@@ -382,12 +629,31 @@ def main(argv: list[str] | None = None) -> int:
     except HandlerError as exc:
         print(exc, file=sys.stderr)
         return exc.exit_code
-    server = serve(RestAgentRuntime(config), host, port)
+    server = serve(
+        RestAgentRuntime(config),
+        host,
+        port,
+        tasks=CloudTasksEnqueuer(config),
+        poster=RestChatPoster(config),
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         return 0
     return 0
+
+
+def caller_email(headers: Mapping[str, str]) -> str:
+    authenticated = headers.get("X-Goog-Authenticated-User-Email") or ""
+    if isinstance(authenticated, str) and authenticated.strip():
+        return authenticated.split(":")[-1].strip().lower()
+    authorization = headers.get("Authorization") or ""
+    if not isinstance(authorization, str):
+        return ""
+    scheme, _, token = authorization.strip().partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return ""
+    return _jwt_email(token)
 
 
 def _user_id(event: Mapping[str, Any]) -> str:
@@ -420,8 +686,61 @@ def _space_and_thread(event: Mapping[str, Any]) -> tuple[str, str]:
     return space, thread
 
 
-def _thread_name(event: Mapping[str, Any]) -> str:
-    return _space_and_thread(event)[1]
+def _message_name(message: Mapping[str, Any]) -> str:
+    name = message.get("name")
+    if isinstance(name, str):
+        return name.strip()
+    return ""
+
+
+def _enqueue_failed() -> tuple[int, dict[str, Any]]:
+    return 500, {"text": ENQUEUE_FAILED_TEXT}
+
+
+def _post(
+    poster: ChatPoster,
+    *,
+    space: str,
+    thread: str,
+    text: str,
+    request_id: str,
+) -> None:
+    poster.create_message(
+        parent=space,
+        thread=thread,
+        text=text,
+        request_id=request_id,
+    )
+
+
+def _post_officer_failure(
+    poster: ChatPoster, space: str, thread: str, message_name: str
+) -> None:
+    _post(
+        poster,
+        space=space,
+        thread=thread,
+        text=OFFICER_ERROR_TEXT,
+        request_id=outcome_request_id(message_name, "failure"),
+    )
+
+
+def _jwt_email(token: str) -> str:
+    parts = token.split(".")
+    if len(parts) < 2:
+        return ""
+    padded = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        payload = json.loads(raw)
+    except ValueError, json.JSONDecodeError, UnicodeError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    email = payload.get("email")
+    if not isinstance(email, str):
+        return ""
+    return email.strip().lower()
 
 
 def _question(message: Mapping[str, Any]) -> str:
@@ -432,13 +751,6 @@ def _question(message: Mapping[str, Any]) -> str:
     if isinstance(text, str):
         return text.strip()
     return ""
-
-
-def _note(thread: str, text: str) -> dict[str, Any]:
-    reply: dict[str, Any] = {"text": text}
-    if thread:
-        reply["thread"] = {"name": thread}
-    return reply
 
 
 def _stream_objects(payload: str) -> list[Any]:

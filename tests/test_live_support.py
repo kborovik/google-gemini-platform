@@ -11,6 +11,7 @@ from tests.live_support import (
     assert_manifest_judgement,
     chat_message_event,
     expected_decision_token,
+    follow_up_text,
     latest_generated_cases,
     lead_decision_token,
     load_judgement_cases,
@@ -37,6 +38,19 @@ def test_chat_message_event_is_a_human_message() -> None:
     assert message["sender"] == {"name": "users/e2e", "type": "HUMAN"}
     assert message["space"] == {"name": "spaces/e2e"}
     assert message["thread"] == {"name": thread}
+    assert message["name"] == f"{thread}/messages/e2e"
+
+
+def test_follow_up_text_skips_the_http_ack() -> None:
+    text = follow_up_text(
+        [
+            {"text": "Request received."},
+            {"text": "decision: accept. LTV clears."},
+        ]
+    )
+    assert text == "decision: accept. LTV clears."
+    with pytest.raises(AssertionError, match="follow-up"):
+        follow_up_text([{"text": "Request received."}])
 
 
 def test_print_agent_turn_labels_request_and_response(
