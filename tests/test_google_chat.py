@@ -143,8 +143,9 @@ class FakeRest:
         *,
         json_body: object | None = None,
         timeout: float = 60.0,
+        attempts: int = 4,
     ) -> RestResponse:
-        self.calls.append((method, url, json_body, timeout))
+        self.calls.append((method, url, json_body, timeout, attempts))
         parsed: object | None = None
         if self.text:
             try:
@@ -181,8 +182,7 @@ def _event(
 
 
 def _bearer(email: str) -> dict[str, str]:
-    payload = base64.urlsafe_b64encode(json.dumps({"email": email}).encode()).decode()
-    return {"Authorization": f"Bearer header.{payload.rstrip('=')}.sig"}
+    return {"X-Goog-Authenticated-User-Email": f"accounts.google.com:{email}"}
 
 
 def test_v4_enqueue_then_ack_does_not_call_stream_query() -> None:
@@ -319,7 +319,7 @@ def test_stream_query_uses_regional_runtime_and_async_method() -> None:
     assert runtime.stream_query(user_id=USER, session_id="s t", message="q") == (
         "Max LTV is 80%."
     )
-    method, called_url, payload, timeout = rest.calls[0]
+    method, called_url, payload, timeout, _attempts = rest.calls[0]
     assert method == "POST"
     assert called_url == url
     assert timeout == STREAM_QUERY_TIMEOUT
@@ -460,6 +460,21 @@ def test_create_idempotency_keeps_the_first_text() -> None:
     ]
 
 
+def test_judge_route_rejects_a_missing_authenticated_email() -> None:
+    runtime = FakeRuntime("decision: accept")
+    poster = IdempotentPoster()
+    question = f"Evaluate {APP_ID}"
+    status, reply = http_judge(
+        json.dumps(_event(text=question, argument=question)).encode(),
+        runtime,
+        poster,
+        {"Authorization": "Bearer unsigned.payload.sig"},
+    )
+    assert status == 403
+    assert reply == {"text": "Forbidden."}
+    assert runtime.calls == []
+
+
 def test_judge_route_rejects_chat_system_account() -> None:
     runtime = FakeRuntime("decision: accept")
     poster = IdempotentPoster()
@@ -483,7 +498,7 @@ def test_cloud_tasks_already_exists_does_not_raise() -> None:
         task_id=task_id_from_message(MESSAGE),
         payload=_event(),
     )
-    method, url, body, _timeout = rest.calls[0]
+    method, url, body, timeout, attempts = rest.calls[0]
     assert method == "POST"
     assert url == (
         "https://cloudtasks.googleapis.com/v2/projects/lab5-gemini-dev1/"
@@ -491,6 +506,8 @@ def test_cloud_tasks_already_exists_does_not_raise() -> None:
     )
     assert isinstance(body, dict)
     task = body["task"]
+    assert timeout == 5.0
+    assert attempts == 1
     assert task["name"].endswith("/tasks/spaces_AAA_messages_M1")
     http_request = task["httpRequest"]
     assert http_request["url"] == f"{CHAT_URL}/tasks/judge"
@@ -522,7 +539,7 @@ def test_create_url_uses_stable_request_id_and_thread() -> None:
         request_id=request_id,
     )
     assert created["text"] == "kept"
-    _method, url, body, _timeout = rest.calls[0]
+    _method, url, body, _timeout, _attempts = rest.calls[0]
     assert url.startswith(f"https://chat.googleapis.com/v1/{SPACE}/messages?")
     assert f"requestId={request_id}" in url
     assert "messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD" in url

@@ -79,6 +79,7 @@ class RestClient(Protocol):
         *,
         json_body: Any | None = None,
         timeout: float = 60.0,
+        attempts: int = 4,
     ) -> RestResponse: ...
 
 
@@ -259,6 +260,7 @@ class RequestsRest:
         *,
         json_body: Any | None = None,
         timeout: float = 60.0,
+        attempts: int = _RETRY_ATTEMPTS,
     ) -> RestResponse:
         import requests
 
@@ -273,7 +275,8 @@ class RequestsRest:
         if isinstance(quota, str) and quota and "x-goog-user-project" not in headers:
             headers["x-goog-user-project"] = quota
         last_error: Exception | None = None
-        for attempt in range(_RETRY_ATTEMPTS):
+        tries = attempts if attempts > 0 else 1
+        for attempt in range(tries):
             try:
                 response = requests.request(
                     method,
@@ -284,14 +287,11 @@ class RequestsRest:
                 )
             except requests.RequestException as exc:
                 last_error = exc
-                if attempt == _RETRY_ATTEMPTS - 1:
+                if attempt == tries - 1:
                     break
                 time.sleep(float(2**attempt))
                 continue
-            if (
-                response.status_code not in _RETRY_STATUSES
-                or attempt == _RETRY_ATTEMPTS - 1
-            ):
+            if response.status_code not in _RETRY_STATUSES or attempt == tries - 1:
                 return _rest_response(response)
             time.sleep(float(2**attempt))
         raise HandlerError(f"request failed: {last_error}", exit_code=1) from last_error
@@ -433,7 +433,8 @@ class CloudTasksEnqueuer:
             "POST",
             url,
             json_body=task_http_body(self._config, task_id, payload),
-            timeout=30.0,
+            timeout=5.0,
+            attempts=1,
         )
         # A second delivery of the same message id is already queued.
         if response.status_code == 409:
@@ -512,7 +513,8 @@ def http_judge(
     poster: ChatPoster,
     headers: Mapping[str, str],
 ) -> tuple[int, dict[str, Any]]:
-    if caller_email(headers) == CHAT_SYSTEM_ACCOUNT:
+    email = caller_email(headers)
+    if not email or email == CHAT_SYSTEM_ACCOUNT:
         return 403, {"text": "Forbidden."}
     try:
         event = json.loads(body)
@@ -644,16 +646,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def caller_email(headers: Mapping[str, str]) -> str:
+    """Email Cloud Run verified. An unsigned bearer token is not a caller."""
     authenticated = headers.get("X-Goog-Authenticated-User-Email") or ""
-    if isinstance(authenticated, str) and authenticated.strip():
-        return authenticated.split(":")[-1].strip().lower()
-    authorization = headers.get("Authorization") or ""
-    if not isinstance(authorization, str):
+    if not isinstance(authenticated, str) or not authenticated.strip():
         return ""
-    scheme, _, token = authorization.strip().partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        return ""
-    return _jwt_email(token)
+    return authenticated.split(":")[-1].strip().lower()
 
 
 def _user_id(event: Mapping[str, Any]) -> str:
@@ -723,24 +720,6 @@ def _post_officer_failure(
         text=OFFICER_ERROR_TEXT,
         request_id=outcome_request_id(message_name, "failure"),
     )
-
-
-def _jwt_email(token: str) -> str:
-    parts = token.split(".")
-    if len(parts) < 2:
-        return ""
-    padded = parts[1] + "=" * (-len(parts[1]) % 4)
-    try:
-        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
-        payload = json.loads(raw)
-    except ValueError, json.JSONDecodeError, UnicodeError:
-        return ""
-    if not isinstance(payload, dict):
-        return ""
-    email = payload.get("email")
-    if not isinstance(email, str):
-        return ""
-    return email.strip().lower()
 
 
 def _question(message: Mapping[str, Any]) -> str:

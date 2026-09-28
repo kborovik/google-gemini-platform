@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -65,16 +67,53 @@ def chat_message_event(
     }
 
 
-def follow_up_text(messages: list[Mapping[str, Any]]) -> str:
+class ChatListError(AssertionError):
+    """spaces.messages.list failed. Do not poll this error."""
+
+
+def require_chat_thread(env: Mapping[str, str]) -> tuple[str, str]:
+    """Real space and thread. Synthetic ids are not Chat resources."""
+    space = env.get("CHAT_SPACE", "").strip()
+    thread = env.get("CHAT_THREAD", "").strip()
+    if not space.startswith("spaces/") or not thread.startswith(f"{space}/threads/"):
+        pytest.skip("CHAT_SPACE and CHAT_THREAD must name a real Chat space and thread")
+    return space, thread
+
+
+def thread_list_filter(thread: str) -> str:
+    return f"thread.name = {thread}"
+
+
+def follow_up_text(
+    messages: list[Mapping[str, Any]],
+    *,
+    not_before: float | None = None,
+) -> str:
     """Officer, help, or error text from Chat. The HTTP body is only the ack."""
     texts: list[str] = []
     for message in messages:
+        if not_before is not None and not _created_after(message, not_before):
+            continue
         text = message.get("text")
         if isinstance(text, str) and text.strip() and text.strip() != ACK_TEXT:
             texts.append(text.strip())
     if not texts:
         raise AssertionError("chat follow-up message is missing")
     return texts[-1]
+
+
+def _created_after(message: Mapping[str, Any], not_before: float) -> bool:
+    created = message.get("createTime")
+    if not isinstance(created, str) or not created.strip():
+        return False
+    stamp = created.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(stamp)
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp() >= not_before - 5.0
 
 
 def gcloud_identity_token() -> str:
@@ -169,13 +208,19 @@ def invoke_agent(env: dict[str, str], user_text: str) -> str:
     """Ask the deployed officer. The judgement is the Chat follow-up, not the ack."""
     if not env.get("GOOGLE_CLOUD_PROJECT"):
         pytest.fail("GOOGLE_CLOUD_PROJECT is not set")
-    thread = f"{_E2E_SPACE}/threads/{uuid.uuid4().hex}"
+    space, thread = require_chat_thread(env)
     message_name = f"{thread}/messages/{uuid.uuid4().hex}"
-    body = post_chat_message(user_text, thread=thread, message_name=message_name)
+    started = time.time()
+    body = post_chat_message(
+        user_text,
+        thread=thread,
+        space=space,
+        message_name=message_name,
+    )
     ack = body.get("text")
     if ack != ACK_TEXT:
         pytest.fail(f"chat host ack was not {ACK_TEXT!r}: {body}")
-    text = read_follow_up(space=_E2E_SPACE, thread=thread)
+    text = read_follow_up(space=space, thread=thread, not_before=started)
     if quota_exhausted({"text": text}):
         pytest.fail(f"chat follow-up exhausted quota: {text}")
     print_agent_turn(
@@ -191,13 +236,20 @@ def read_follow_up(
     space: str,
     thread: str,
     timeout: float = 200.0,
+    not_before: float | None = None,
 ) -> str:
     """Poll spaces.messages.list until the worker's follow-up is present."""
     deadline = time.monotonic() + timeout
     last_error = "chat follow-up message is missing"
     while True:
         try:
-            return follow_up_text(list_thread_messages(space=space, thread=thread))
+            messages = list_thread_messages(space=space, thread=thread)
+        except ChatListError as exc:
+            pytest.fail(str(exc))
+        try:
+            return follow_up_text(messages, not_before=not_before)
+        except ChatListError as exc:
+            pytest.fail(str(exc))
         except AssertionError as exc:
             last_error = str(exc)
         if time.monotonic() >= deadline:
@@ -210,13 +262,13 @@ def list_thread_messages(*, space: str, thread: str) -> list[dict[str, Any]]:
         response = requests.get(
             f"https://chat.googleapis.com/v1/{space}/messages",
             headers={"Authorization": f"Bearer {_chat_bot_token()}"},
-            params={"filter": f'thread.name = "{thread}"', "pageSize": 50},
+            params={"filter": thread_list_filter(thread), "pageSize": 50},
             timeout=30,
         )
     except requests.RequestException as exc:
-        raise AssertionError(f"spaces.messages.list failed: {exc}") from exc
+        raise ChatListError(f"spaces.messages.list failed: {exc}") from exc
     if response.status_code != 200:
-        raise AssertionError(
+        raise ChatListError(
             f"spaces.messages.list returned {response.status_code}: "
             f"{response.text[:500]}"
         )
@@ -231,11 +283,20 @@ def list_thread_messages(*, space: str, thread: str) -> list[dict[str, Any]]:
 
 
 def _chat_bot_token() -> str:
+    """chat.bot token for credit-policy-agent. User ADC cannot hold that scope."""
     import google.auth
+    import google.auth.impersonated_credentials
     import google.auth.transport.requests
 
-    credentials, _detected = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/chat.bot"]
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    if not project:
+        pytest.fail("GOOGLE_CLOUD_PROJECT is not set")
+    source, _detected = google.auth.default()
+    credentials = google.auth.impersonated_credentials.Credentials(
+        source_credentials=source,
+        target_principal=f"credit-policy-agent@{project}.iam.gserviceaccount.com",
+        target_scopes=["https://www.googleapis.com/auth/chat.bot"],
+        lifetime=300,
     )
     credentials.refresh(google.auth.transport.requests.Request())
     token = getattr(credentials, "token", None)

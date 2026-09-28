@@ -12,6 +12,7 @@ from tests.live_support import (
     chat_message_event,
     expected_decision_token,
     follow_up_text,
+    thread_list_filter,
     latest_generated_cases,
     lead_decision_token,
     load_judgement_cases,
@@ -39,6 +40,26 @@ def test_chat_message_event_is_a_human_message() -> None:
     assert message["space"] == {"name": "spaces/e2e"}
     assert message["thread"] == {"name": thread}
     assert message["name"] == f"{thread}/messages/e2e"
+
+
+def test_thread_list_filter_is_an_unquoted_resource_name() -> None:
+    thread = "spaces/AAA/threads/BBB"
+    assert thread_list_filter(thread) == "thread.name = spaces/AAA/threads/BBB"
+    assert '"' not in thread_list_filter(thread)
+
+
+def test_follow_up_text_ignores_messages_from_before_the_turn() -> None:
+    text = follow_up_text(
+        [
+            {"text": "old judgement", "createTime": "2020-01-01T00:00:00Z"},
+            {
+                "text": "new judgement",
+                "createTime": "2026-09-28T12:00:00Z",
+            },
+        ],
+        not_before=1_780_000_000.0,
+    )
+    assert text == "new judgement"
 
 
 def test_follow_up_text_skips_the_http_ack() -> None:
