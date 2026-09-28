@@ -46,6 +46,10 @@ def test_thread_list_filter_is_an_unquoted_resource_name() -> None:
     thread = "spaces/AAA/threads/BBB"
     assert thread_list_filter(thread) == "thread.name = spaces/AAA/threads/BBB"
     assert '"' not in thread_list_filter(thread)
+    filtered = thread_list_filter(thread, not_before=1_780_000_000.0)
+    assert filtered.endswith("AND thread.name = spaces/AAA/threads/BBB")
+    assert 'createTime > "' in filtered
+    assert 'thread.name = "' not in filtered
 
 
 def test_follow_up_text_ignores_messages_from_before_the_turn() -> None:
@@ -60,6 +64,18 @@ def test_follow_up_text_ignores_messages_from_before_the_turn() -> None:
         not_before=1_780_000_000.0,
     )
     assert text == "new judgement"
+
+
+def test_follow_up_text_skips_the_human_turn() -> None:
+    text = follow_up_text(
+        [
+            {"text": "Evaluate CA-1", "sender": {"type": "HUMAN"}},
+            {"text": "decision: accept", "sender": {"type": "BOT"}},
+        ]
+    )
+    assert text == "decision: accept"
+    with pytest.raises(AssertionError, match="follow-up"):
+        follow_up_text([{"text": "Evaluate CA-1", "sender": {"type": "HUMAN"}}])
 
 
 def test_follow_up_text_skips_the_http_ack() -> None:

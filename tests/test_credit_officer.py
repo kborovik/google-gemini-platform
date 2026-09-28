@@ -27,6 +27,7 @@ from agents.credit_officer.agent import (
     load_root_agent,
     parse_application_hits,
     gcs_bearer_headers,
+    lookup_query,
     resolve_data_store_id,
     search_client_applications,
 )
@@ -67,6 +68,23 @@ def test_v1_instructions_are_grounded_only() -> None:
     assert "customer_name" in text
     assert "expected_outcome" in text
     assert NO_MATCH_SENTENCE in text
+
+
+def test_lookup_query_treats_json_null_as_empty() -> None:
+    assert lookup_query("CA-1", None) == "CA-1"
+    assert lookup_query(None, "Ada Lovelace") == "Ada Lovelace"
+    assert lookup_query(None, None) is None
+    calls: list[str] = []
+
+    def searcher(query: str) -> list[ApplicationHit]:
+        calls.append(query)
+        return []
+
+    officer = build_credit_officer(STORE, searcher=searcher)
+    tool = officer.tools[0]
+    assert isinstance(tool, FunctionTool)
+    tool.func(application_id="CA-1", customer_name=None)
+    assert calls == ["CA-1"]
 
 
 def test_v1_lookup_does_not_judge_a_miss_or_several_hits() -> None:

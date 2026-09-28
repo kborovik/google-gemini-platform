@@ -164,6 +164,8 @@ def test_makefile_deploy_applies_uploads_and_indexes() -> None:
     assert "terraform-apply" in match.group(0)
     assert "output -raw DATA_STORE" in body
     assert "agents/credit_officer/.env" in body
+    assert "POLICY_PACK_URI=gs://" in body
+    assert "credit-policies/policy-pack.md" in body
     assert "$(UV) run docgen upload" in body
     assert "$(MAKE) index wait=1" in body
     assert "adk deploy" not in text

@@ -81,7 +81,8 @@ deploy: .venv terraform-apply ## Apply, set DATA_STORE, upload, index
 	$(call header,Reading DATA_STORE)
 	data_store=$$(terraform -chdir=$(terraform_dir) output -raw DATA_STORE) && \
 	test -n "$$data_store" && \
-	printf 'DATA_STORE=%s\n' "$$data_store" > $(git_root)/agents/credit_officer/.env && \
+	printf 'DATA_STORE=%s\nPOLICY_PACK_URI=gs://%s-credit-docs/credit-policies/policy-pack.md\n' \
+		"$$data_store" "$(google_project)" > $(git_root)/agents/credit_officer/.env && \
 	printf '%s\n' "$$data_store"
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload

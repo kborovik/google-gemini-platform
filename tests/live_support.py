@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import re
 import subprocess
 import sys
@@ -80,8 +79,15 @@ def require_chat_thread(env: Mapping[str, str]) -> tuple[str, str]:
     return space, thread
 
 
-def thread_list_filter(thread: str) -> str:
-    return f"thread.name = {thread}"
+def thread_list_filter(thread: str, *, not_before: float | None = None) -> str:
+    """thread.name stays unquoted. createTime is a quoted RFC3339 timestamp."""
+    clause = f"thread.name = {thread}"
+    if not_before is None:
+        return clause
+    stamp = datetime.fromtimestamp(not_before - 5.0, timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    return f'createTime > "{stamp}" AND {clause}'
 
 
 def follow_up_text(
@@ -92,6 +98,9 @@ def follow_up_text(
     """Officer, help, or error text from Chat. The HTTP body is only the ack."""
     texts: list[str] = []
     for message in messages:
+        sender = message.get("sender")
+        if isinstance(sender, dict) and sender.get("type") == "HUMAN":
+            continue
         if not_before is not None and not _created_after(message, not_before):
             continue
         text = message.get("text")
@@ -243,7 +252,9 @@ def read_follow_up(
     last_error = "chat follow-up message is missing"
     while True:
         try:
-            messages = list_thread_messages(space=space, thread=thread)
+            messages = list_thread_messages(
+                space=space, thread=thread, not_before=not_before
+            )
         except ChatListError as exc:
             pytest.fail(str(exc))
         try:
@@ -257,52 +268,86 @@ def read_follow_up(
         time.sleep(2.0)
 
 
-def list_thread_messages(*, space: str, thread: str) -> list[dict[str, Any]]:
-    try:
-        response = requests.get(
-            f"https://chat.googleapis.com/v1/{space}/messages",
-            headers={"Authorization": f"Bearer {_chat_bot_token()}"},
-            params={"filter": thread_list_filter(thread), "pageSize": 50},
-            timeout=30,
-        )
-    except requests.RequestException as exc:
-        raise ChatListError(f"spaces.messages.list failed: {exc}") from exc
-    if response.status_code != 200:
-        raise ChatListError(
-            f"spaces.messages.list returned {response.status_code}: "
-            f"{response.text[:500]}"
-        )
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise AssertionError("spaces.messages.list returned non-JSON") from exc
-    messages = body.get("messages") if isinstance(body, dict) else None
-    if not isinstance(messages, list):
-        return []
-    return [item for item in messages if isinstance(item, dict)]
+# spaces.messages.list does not accept chat.bot. User auth lists the thread.
+_CHAT_LIST_SCOPE = "https://www.googleapis.com/auth/chat.messages.readonly"
+_LIST_PAGE_CAP = 20
 
 
-def _chat_bot_token() -> str:
-    """chat.bot token for credit-policy-agent. User ADC cannot hold that scope."""
+def list_thread_messages(
+    *, space: str, thread: str, not_before: float | None = None
+) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = []
+    page_token = ""
+    list_filter = thread_list_filter(thread, not_before=not_before)
+    for _page in range(_LIST_PAGE_CAP):
+        params: dict[str, str | int] = {
+            "filter": list_filter,
+            "pageSize": 50,
+            "orderBy": "createTime DESC",
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        try:
+            response = requests.get(
+                f"https://chat.googleapis.com/v1/{space}/messages",
+                headers={"Authorization": f"Bearer {_chat_list_token()}"},
+                params=params,
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise ChatListError(f"spaces.messages.list failed: {exc}") from exc
+        if response.status_code != 200:
+            raise ChatListError(
+                f"spaces.messages.list returned {response.status_code}: "
+                f"{response.text[:500]}"
+            )
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise AssertionError("spaces.messages.list returned non-JSON") from exc
+        if not isinstance(body, dict):
+            break
+        messages = body.get("messages")
+        if isinstance(messages, list):
+            collected.extend(item for item in messages if isinstance(item, dict))
+        page_token = body.get("nextPageToken")
+        if not isinstance(page_token, str) or not page_token:
+            break
+    collected.sort(key=_create_stamp)
+    return collected
+
+
+def _chat_list_token() -> str:
+    """User token for spaces.messages.list. chat.bot cannot call that method."""
     import google.auth
-    import google.auth.impersonated_credentials
+    import google.auth.exceptions
     import google.auth.transport.requests
 
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
-    if not project:
-        pytest.fail("GOOGLE_CLOUD_PROJECT is not set")
-    source, _detected = google.auth.default()
-    credentials = google.auth.impersonated_credentials.Credentials(
-        source_credentials=source,
-        target_principal=f"credit-policy-agent@{project}.iam.gserviceaccount.com",
-        target_scopes=["https://www.googleapis.com/auth/chat.bot"],
-        lifetime=300,
-    )
-    credentials.refresh(google.auth.transport.requests.Request())
+    try:
+        credentials, _detected = google.auth.default(scopes=[_CHAT_LIST_SCOPE])
+        credentials.refresh(google.auth.transport.requests.Request())
+    except google.auth.exceptions.GoogleAuthError as exc:
+        pytest.fail(
+            f"spaces.messages.list needs a user token with {_CHAT_LIST_SCOPE}: {exc}"
+        )
     token = getattr(credentials, "token", None)
     if not isinstance(token, str) or not token:
-        pytest.fail("chat.bot token was not issued")
+        pytest.fail("chat list token was not issued")
     return token
+
+
+def _create_stamp(message: Mapping[str, Any]) -> float:
+    created = message.get("createTime")
+    if not isinstance(created, str) or not created.strip():
+        return 0.0
+    stamp = created.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(stamp)
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
 
 
 def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:
