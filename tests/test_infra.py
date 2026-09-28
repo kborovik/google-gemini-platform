@@ -357,6 +357,17 @@ def test_v16_chat_invoker_is_a_literal() -> None:
     assert queue is not None
     assert re.search(r"location\s+=\s+var\.region", queue.group("body"))
     assert 'role     = "roles/cloudtasks.enqueuer"' in infra
+    tasks = (repo_root() / "infra/tasks.tf").read_text(encoding="utf-8")
+    assert (
+        'resource "google_service_account_iam_member" '
+        '"cloudtasks_chat_tasks_token_creator"'
+    ) in tasks
+    assert 'role               = "roles/iam.serviceAccountTokenCreator"' in tasks
+    assert "gcp-sa-cloudtasks.iam.gserviceaccount.com" in tasks
+    assert (
+        'resource "google_service_account_iam_member" "agent_chat_tasks_user"' in tasks
+    )
+    assert tasks.count('role               = "roles/iam.serviceAccountUser"') == 1
 
 
 def test_v18_chat_handler_host() -> None:

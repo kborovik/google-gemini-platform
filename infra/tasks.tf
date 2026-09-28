@@ -30,8 +30,8 @@ resource "google_service_account_iam_member" "agent_chat_tasks_user" {
 }
 
 # Cloud Tasks mints the OIDC token attached to POST /tasks/judge.
-resource "google_service_account_iam_member" "cloudtasks_chat_tasks_user" {
+resource "google_service_account_iam_member" "cloudtasks_chat_tasks_token_creator" {
   service_account_id = google_service_account.chat_tasks.name
-  role               = "roles/iam.serviceAccountUser"
+  role               = "roles/iam.serviceAccountTokenCreator"
   member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-cloudtasks.iam.gserviceaccount.com"
 }
