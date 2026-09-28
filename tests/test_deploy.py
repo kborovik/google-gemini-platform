@@ -147,9 +147,7 @@ def test_published_policies_match_the_twelve_file_pack() -> None:
     directory = repo_root() / "data" / "credit-policies"
     data, digest = render_policy_pack(directory)
     names = sorted(
-        path.name
-        for path in directory.glob("*.md")
-        if path.name != "policy-pack.md"
+        path.name for path in directory.glob("*.md") if path.name != "policy-pack.md"
     )
     assert len(names) == 12
     manifest = (directory / "manifest.json").read_text(encoding="utf-8")
@@ -197,4 +195,6 @@ def test_changed_policy_pack_hash_is_uploaded(tmp_path: Path) -> None:
     assert stores["credit-policies"].uploads == ["policy-pack.md"]
     assert stores["client-applications"].uploads == []
     uploaded = stores["credit-policies"].blobs["policy-pack.md"]
-    assert uploaded.metadata["content_sha256"] == hashlib.sha256(uploaded.data).hexdigest()
+    assert (
+        uploaded.metadata["content_sha256"] == hashlib.sha256(uploaded.data).hexdigest()
+    )

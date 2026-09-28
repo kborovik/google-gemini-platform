@@ -102,10 +102,7 @@ class PolicyPackCache:
         if not self.uri:
             return self.text
         now = self._clock()
-        if (
-            self._filled_at is not None
-            and now - self._filled_at < self.ttl_seconds
-        ):
+        if self._filled_at is not None and now - self._filled_at < self.ttl_seconds:
             return self.text
         return self.fill()
 
@@ -262,8 +259,10 @@ def format_lookup_hits(hits: list[ApplicationHit]) -> str:
         return NO_MATCH_SENTENCE
     if len(hits) > 1:
         ids = [hit.application_id for hit in hits if hit.application_id]
-        listed = ", ".join(ids) if ids else ", ".join(
-            hit.source_name for hit in hits if hit.source_name
+        listed = (
+            ", ".join(ids)
+            if ids
+            else ", ".join(hit.source_name for hit in hits if hit.source_name)
         )
         return f"Matching application_id values: {listed}. Do not judge."
     hit = hits[0]
@@ -316,9 +315,7 @@ def build_credit_officer(
         lambda query, store_id=store: search_client_applications(store_id, query)
     )
 
-    def lookup_application(
-        application_id: str = "", customer_name: str = ""
-    ) -> str:
+    def lookup_application(application_id: str = "", customer_name: str = "") -> str:
         """Look up one client application by application_id or customer_name.
 
         Pass exactly one argument. Searches kb-credit-policies with filter

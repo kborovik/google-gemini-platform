@@ -186,8 +186,7 @@ def test_v4_search_requests_only_client_applications() -> None:
                     "document": {
                         "derivedStructData": {
                             "link": (
-                                "gs://b/client-applications/"
-                                "credit-application-CA-1.md"
+                                "gs://b/client-applications/credit-application-CA-1.md"
                             ),
                             "extractive_segments": [{"content": "ltv: 71%"}],
                         }

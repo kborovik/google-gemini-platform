@@ -424,9 +424,7 @@ def run_index(
     application_dir = config.application_dir or (
         root / DEFAULT_APPLICATION_OUTPUT_RELATIVE
     )
-    policy_uris = policy_object_uris(
-        config.bucket, config.policy_prefix, policy_dir
-    )
+    policy_uris = policy_object_uris(config.bucket, config.policy_prefix, policy_dir)
     application_uri = gcs_markdown_glob(config.bucket, config.application_prefix)
     store = data_store_resource(config.project, config.data_store_id)
     local_applications = local_corpus_size(application_dir)
@@ -571,11 +569,7 @@ def _wait_until_indexed(
                 still.append(operation)
         pending = still
         policies, applications = split_counts(ops.list_indexed_uris(data_store_id))
-        if (
-            not pending
-            and policies >= MIN_INDEXED_ITEMS
-            and applications >= floor
-        ):
+        if not pending and policies >= MIN_INDEXED_ITEMS and applications >= floor:
             echo(f"indexed policies={policies} applications={applications}")
             return
         if clock.monotonic() >= deadline:
@@ -600,9 +594,7 @@ def _await_operation(ops: SearchOps, name: str, clock: Clock) -> None:
         if done:
             return
         if clock.monotonic() >= deadline:
-            raise TalosError(
-                f"Agent Search import did not finish: {name}", exit_code=1
-            )
+            raise TalosError(f"Agent Search import did not finish: {name}", exit_code=1)
         clock.sleep(POLL_INTERVAL_SECONDS)
 
 

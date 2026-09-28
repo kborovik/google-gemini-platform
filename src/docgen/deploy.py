@@ -62,9 +62,7 @@ def gcs_prefix_uri(bucket: str, prefix: str) -> str:
 
 def policy_markdown_paths(directory: Path) -> list[Path]:
     return sorted(
-        path
-        for path in directory.glob("*.md")
-        if path.name != POLICY_PACK_FILENAME
+        path for path in directory.glob("*.md") if path.name != POLICY_PACK_FILENAME
     )
 
 
@@ -104,9 +102,7 @@ def publish_policy_pack(
             f"{POLICY_PACK_FILENAME}  blob={store.blob_url(POLICY_PACK_FILENAME)}  skipped"
         )
         return
-    url = store.upload_markdown(
-        POLICY_PACK_FILENAME, data, {"content_sha256": digest}
-    )
+    url = store.upload_markdown(POLICY_PACK_FILENAME, data, {"content_sha256": digest})
     echo(f"{POLICY_PACK_FILENAME}  blob={url}  uploaded")
 
 
@@ -161,15 +157,11 @@ def run_deploy(
             policy_store = store
         # policy-pack.md is published after the prefix sync. Keeping the name
         # stops that sync from deleting the object before the hash check.
-        preserve = (
-            {POLICY_PACK_FILENAME} if prefix == config.policy_prefix else None
-        )
+        preserve = {POLICY_PACK_FILENAME} if prefix == config.policy_prefix else None
         uploaded = sync_markdown_directory(
             store, directory, force=config.force, echo=echo, preserve=preserve
         )
         echo(f"blob-sync {prefix}: uploaded {uploaded}")
     if policy_store is None:
         raise TalosError("policy prefix store is missing", exit_code=1)
-    publish_policy_pack(
-        policy_store, policy_dir, force=config.force, echo=echo
-    )
+    publish_policy_pack(policy_store, policy_dir, force=config.force, echo=echo)
