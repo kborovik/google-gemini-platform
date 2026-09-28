@@ -512,9 +512,10 @@ def http_judge(
     runtime: AgentRuntime,
     poster: ChatPoster,
     headers: Mapping[str, str],
+    project: str,
 ) -> tuple[int, dict[str, Any]]:
     email = caller_email(headers)
-    if not email or email == CHAT_SYSTEM_ACCOUNT:
+    if email == CHAT_SYSTEM_ACCOUNT or email != tasks_invoker_email(project):
         return 403, {"text": "Forbidden."}
     try:
         event = json.loads(body)
@@ -591,6 +592,7 @@ def serve(
     *,
     tasks: TaskEnqueuer,
     poster: ChatPoster,
+    project: str,
 ) -> ThreadingHTTPServer:
     class _Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
@@ -605,7 +607,9 @@ def serve(
             raw = self.rfile.read(length) if length else b""
             path = self.path.split("?", 1)[0].rstrip("/") or "/"
             if path == _JUDGE_PATH:
-                status, payload = http_judge(raw, runtime, poster, self.headers)
+                status, payload = http_judge(
+                    raw, runtime, poster, self.headers, project
+                )
             else:
                 status, payload = http_reply(raw, tasks)
             self._send(status, payload)
@@ -637,6 +641,7 @@ def main(argv: list[str] | None = None) -> int:
         port,
         tasks=CloudTasksEnqueuer(config),
         poster=RestChatPoster(config),
+        project=config.project,
     )
     try:
         server.serve_forever()
@@ -645,12 +650,42 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def caller_email(headers: Mapping[str, str]) -> str:
-    """Email Cloud Run verified. An unsigned bearer token is not a caller."""
-    authenticated = headers.get("X-Goog-Authenticated-User-Email") or ""
-    if not isinstance(authenticated, str) or not authenticated.strip():
+def verify_google_id_token(token: str, audience: str) -> Mapping[str, Any]:
+    """Verify a Google-signed ID token. Audience must match."""
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token
+
+    claims = id_token.verify_oauth2_token(token, google_requests.Request(), audience)
+    if not isinstance(claims, Mapping):
+        raise ValueError("ID token claims must be a mapping.")
+    return claims
+
+
+def _authorization_bearer(headers: Mapping[str, str]) -> str:
+    authorization = headers.get("Authorization") or ""
+    if not isinstance(authorization, str):
         return ""
-    return authenticated.split(":")[-1].strip().lower()
+    scheme, _, token = authorization.strip().partition(" ")
+    if scheme.lower() != "bearer":
+        return ""
+    return token.strip()
+
+
+def caller_email(headers: Mapping[str, str]) -> str:
+    """Email on a verified Google-signed ID token. Unsigned bearer is not a caller."""
+    from google.auth.exceptions import GoogleAuthError
+
+    token = _authorization_bearer(headers)
+    if not token:
+        return ""
+    try:
+        claims = verify_google_id_token(token, CHAT_URL)
+    except ValueError, GoogleAuthError:
+        return ""
+    email = claims.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return ""
+    return email.strip().lower()
 
 
 def _user_id(event: Mapping[str, Any]) -> str:

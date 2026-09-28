@@ -89,7 +89,7 @@ T28|x|fix chat/main.py session_id to Sessions API grammar; unit-test uppercase s
 T29|x|serve status questions from PolicyPack plus one lookup_application; publish credit-policies/policy-pack.md; stamp corpus=client-applications|V1,V3,V4,V9,V10,I.cmd,I.index,I.infra
 T30|x|async Chat over HTTP: ack `Request received.`; id gate; zero ids → fixed help with format `CA-{YYYYMMDD}-{unix_ms}` and one example `CA-20260115-1736899200123`, no streamQuery; many ids → list, no judgement; one id → streamQuery then `spaces.messages.create`; duplicate message → one task and one follow-up; `POST /tasks/judge` rejects `chat@system.gserviceaccount.com`; non-invoker stays 403; unit tests for enqueue, help, multi-id, duplicate task, idempotent create; sync docs/demo.md; live Chat test reads the follow-up, not the HTTP body|V4,V14,V18,I.chat,I.infra
 T31|x|grant Cloud Tasks service agent `roles/iam.serviceAccountTokenCreator` on `chat-tasks`; keep `credit-policy-agent` as `roles/iam.serviceAccountUser`; unit-test the binding|V18,B4,I.infra
-T32|.|judge caller from verified `Authorization` ID token; audience `https://credit-policy.ai.lab5.ca`; email `chat-tasks@{project}`; 403 on missing token, bad signature, wrong audience, or `chat@system.gserviceaccount.com`; do not read `X-Goog-Authenticated-User-Email`; unit-test verified `chat-tasks` token proceeds and unsigned bearer stays 403|V18,B5,I.chat
+T32|x|judge caller from verified `Authorization` ID token; audience `https://credit-policy.ai.lab5.ca`; email `chat-tasks@{project}`; 403 on missing token, bad signature, wrong audience, or `chat@system.gserviceaccount.com`; do not read `X-Goog-Authenticated-User-Email`; unit-test verified `chat-tasks` token proceeds and unsigned bearer stays 403|V18,B5,I.chat
 
 ## §B BUGS
 

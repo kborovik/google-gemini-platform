@@ -63,7 +63,9 @@ USER = "users/123"
 MESSAGE = "spaces/AAA/messages/M1"
 APP_ID = "CA-20260115-1736899200123"
 OTHER_ID = "CA-20260220-1771588800000"
+PROJECT = "lab5-gemini-dev1"
 TASKS_ACCOUNT = "chat-tasks@lab5-gemini-dev1.iam.gserviceaccount.com"
+_IAP_EMAIL = "X-Goog-Authenticated-User-Email"
 
 
 class FakeRuntime:
@@ -181,8 +183,29 @@ def _event(
     }
 
 
-def _bearer(email: str) -> dict[str, str]:
-    return {"X-Goog-Authenticated-User-Email": f"accounts.google.com:{email}"}
+def _install_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub Google's verifier. Token text selects the claim or the failure."""
+
+    def verify(token: str, audience: str) -> dict[str, str]:
+        assert audience == CHAT_URL
+        if token == "tasks":
+            return {"email": TASKS_ACCOUNT, "aud": audience}
+        if token == "system":
+            return {"email": CHAT_SYSTEM_ACCOUNT, "aud": audience}
+        if token == "other-project":
+            return {
+                "email": "chat-tasks@other-project.iam.gserviceaccount.com",
+                "aud": audience,
+            }
+        if token == "wrong-audience":
+            raise ValueError("Token has wrong audience.")
+        raise ValueError("Could not verify token signature.")
+
+    monkeypatch.setattr(chat_main, "verify_google_id_token", verify)
+
+
+def _bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
 
 
 def test_v4_enqueue_then_ack_does_not_call_stream_query() -> None:
@@ -423,7 +446,10 @@ def test_one_id_calls_stream_query_and_posts_officer_text() -> None:
     assert poster.calls[0]["request_id"] != outcome_request_id(MESSAGE, "failure")
 
 
-def test_officer_failure_posts_an_error_sentence() -> None:
+def test_officer_failure_posts_an_error_sentence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_verifier(monkeypatch)
     runtime = FakeRuntime()
     runtime.error = HandlerError("streamQuery failed: HTTP 404 nope")
     poster = IdempotentPoster()
@@ -432,7 +458,8 @@ def test_officer_failure_posts_an_error_sentence() -> None:
         json.dumps(_event(text=question, argument=question)).encode(),
         runtime,
         poster,
-        _bearer(TASKS_ACCOUNT),
+        _bearer("tasks"),
+        PROJECT,
     )
     assert status == 200
     assert reply == {}
@@ -460,35 +487,133 @@ def test_create_idempotency_keeps_the_first_text() -> None:
     ]
 
 
-def test_judge_route_rejects_a_missing_authenticated_email() -> None:
+def _judge(
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    *,
+    question: str | None = None,
+) -> tuple[int, dict[str, object], FakeRuntime, IdempotentPoster]:
+    _install_verifier(monkeypatch)
     runtime = FakeRuntime("decision: accept")
     poster = IdempotentPoster()
-    question = f"Evaluate {APP_ID}"
+    text = question if question is not None else f"Evaluate {APP_ID}"
     status, reply = http_judge(
-        json.dumps(_event(text=question, argument=question)).encode(),
+        json.dumps(_event(text=text, argument=text)).encode(),
         runtime,
         poster,
-        {"Authorization": "Bearer unsigned.payload.sig"},
+        headers,
+        PROJECT,
     )
-    assert status == 403
-    assert reply == {"text": "Forbidden."}
-    assert runtime.calls == []
+    return status, reply, runtime, poster
 
 
-def test_judge_route_rejects_chat_system_account() -> None:
-    runtime = FakeRuntime("decision: accept")
-    poster = IdempotentPoster()
+def test_judge_route_accepts_a_verified_chat_tasks_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     question = f"Evaluate {APP_ID}"
-    status, reply = http_judge(
-        json.dumps(_event(text=question, argument=question)).encode(),
-        runtime,
-        poster,
-        _bearer(CHAT_SYSTEM_ACCOUNT),
+    status, reply, runtime, poster = _judge(
+        monkeypatch,
+        {
+            **_bearer("tasks"),
+            _IAP_EMAIL: f"accounts.google.com:{CHAT_SYSTEM_ACCOUNT}",
+        },
+        question=question,
+    )
+    assert status == 200
+    assert reply == {}
+    assert runtime.calls == [(USER, session_id(SPACE, THREAD), question)]
+    assert poster.calls[0]["text"] == "decision: accept"
+
+
+def test_judge_route_rejects_an_unsigned_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, reply, runtime, poster = _judge(
+        monkeypatch,
+        {
+            "Authorization": "Bearer unsigned.payload.sig",
+            _IAP_EMAIL: f"accounts.google.com:{TASKS_ACCOUNT}",
+        },
     )
     assert status == 403
     assert reply == {"text": "Forbidden."}
     assert runtime.calls == []
     assert poster.calls == []
+
+
+def test_judge_route_rejects_a_missing_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, reply, runtime, poster = _judge(
+        monkeypatch,
+        {_IAP_EMAIL: f"accounts.google.com:{TASKS_ACCOUNT}"},
+    )
+    assert status == 403
+    assert reply == {"text": "Forbidden."}
+    assert runtime.calls == []
+    assert poster.calls == []
+
+
+def test_judge_route_rejects_a_bad_signature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, reply, runtime, _poster = _judge(monkeypatch, _bearer("bad-signature"))
+    assert status == 403
+    assert reply == {"text": "Forbidden."}
+    assert runtime.calls == []
+
+
+def test_judge_route_rejects_a_wrong_audience(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, reply, runtime, _poster = _judge(monkeypatch, _bearer("wrong-audience"))
+    assert status == 403
+    assert reply == {"text": "Forbidden."}
+    assert runtime.calls == []
+
+
+def test_judge_route_rejects_chat_system_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, reply, runtime, poster = _judge(monkeypatch, _bearer("system"))
+    assert status == 403
+    assert reply == {"text": "Forbidden."}
+    assert runtime.calls == []
+    assert poster.calls == []
+
+
+def test_judge_route_rejects_a_verified_token_for_another_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, reply, runtime, poster = _judge(monkeypatch, _bearer("other-project"))
+    assert status == 403
+    assert reply == {"text": "Forbidden."}
+    assert runtime.calls == []
+    assert poster.calls == []
+
+
+def test_v18_judge_does_not_read_iap_user_email() -> None:
+    source = (repo_root() / "chat" / "main.py").read_text()
+    assert _IAP_EMAIL not in source
+
+
+def test_v18_verify_google_id_token_checks_the_chat_audience(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake(token, request, audience=None, clock_skew_in_seconds=0):
+        captured["token"] = token
+        captured["audience"] = audience
+        assert request is not None
+        return {"iss": "https://accounts.google.com", "email": TASKS_ACCOUNT}
+
+    import google.oauth2.id_token as id_token_mod
+
+    monkeypatch.setattr(id_token_mod, "verify_oauth2_token", fake)
+    claims = chat_main.verify_google_id_token("signed-token", CHAT_URL)
+    assert captured == {"token": "signed-token", "audience": CHAT_URL}
+    assert claims["email"] == TASKS_ACCOUNT
 
 
 def test_cloud_tasks_already_exists_does_not_raise() -> None:
@@ -576,11 +701,14 @@ def test_invalid_json_does_not_enqueue() -> None:
     assert tasks.calls == 0
 
 
-def test_http_post_acks_then_judge_posts_follow_up() -> None:
+def test_http_post_acks_then_judge_posts_follow_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_verifier(monkeypatch)
     runtime = FakeRuntime("cited answer")
     tasks = FakeTasks()
     poster = IdempotentPoster()
-    server = serve(runtime, "127.0.0.1", 0, tasks=tasks, poster=poster)
+    server = serve(runtime, "127.0.0.1", 0, tasks=tasks, poster=poster, project=PROJECT)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -603,7 +731,7 @@ def test_http_post_acks_then_judge_posts_follow_up() -> None:
             data=json.dumps(event).encode(),
             headers={
                 "Content-Type": "application/json",
-                **_bearer(TASKS_ACCOUNT),
+                **_bearer("tasks"),
             },
             method="POST",
         )
@@ -616,7 +744,7 @@ def test_http_post_acks_then_judge_posts_follow_up() -> None:
             data=json.dumps(event).encode(),
             headers={
                 "Content-Type": "application/json",
-                **_bearer(CHAT_SYSTEM_ACCOUNT),
+                **_bearer("system"),
             },
             method="POST",
         )
