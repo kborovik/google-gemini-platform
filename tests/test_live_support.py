@@ -112,6 +112,31 @@ def test_thread_list_filter_is_an_unquoted_resource_name() -> None:
     assert 'thread.name = "' not in filtered
 
 
+def test_follow_up_text_ignores_a_message_already_in_the_thread() -> None:
+    old = {
+        "name": "spaces/S/messages/old",
+        "text": "old judgement",
+        "createTime": "2026-09-28T12:00:00Z",
+    }
+    new = {
+        "name": "spaces/S/messages/new",
+        "text": "new judgement",
+        "createTime": "2026-09-28T12:00:02Z",
+    }
+    text = follow_up_text(
+        [old, new],
+        not_before=1_780_000_000.0,
+        exclude_names={"spaces/S/messages/old"},
+    )
+    assert text == "new judgement"
+    with pytest.raises(AssertionError, match="follow-up"):
+        follow_up_text(
+            [old],
+            not_before=1_780_000_000.0,
+            exclude_names={"spaces/S/messages/old"},
+        )
+
+
 def test_follow_up_text_ignores_messages_from_before_the_turn() -> None:
     text = follow_up_text(
         [

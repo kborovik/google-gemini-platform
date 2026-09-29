@@ -17,7 +17,9 @@ from tests.live_support import (
     assert_manifest_judgement,
     invoke_agent,
     latest_generated_cases,
+    list_thread_messages,
     load_judgement_cases,
+    message_names,
     post_chat_message,
     read_follow_up,
     require_chat_thread,
@@ -93,6 +95,9 @@ def test_message_ack_then_reads_the_follow_up(live_env: dict[str, str]) -> None:
     space, thread = require_chat_thread(live_env)
     question = "What is the max LTV for an owner-occupied residential mortgage?"
     started = time.time()
+    already = message_names(
+        list_thread_messages(space=space, thread=thread, not_before=started)
+    )
     reply = post_chat_message(
         question,
         thread=thread,
@@ -102,7 +107,12 @@ def test_message_ack_then_reads_the_follow_up(live_env: dict[str, str]) -> None:
     )
     assert reply["thread"] == {"name": thread}
     assert reply["text"] == ACK_TEXT
-    follow_up = read_follow_up(space=space, thread=thread, not_before=started)
+    follow_up = read_follow_up(
+        space=space,
+        thread=thread,
+        not_before=started,
+        exclude_names=already,
+    )
     assert follow_up != ACK_TEXT
     assert "CA-{YYYYMMDD}-{unix_ms}" in follow_up
     assert "CA-20260115-1736899200123" in follow_up

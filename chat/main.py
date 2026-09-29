@@ -460,10 +460,10 @@ class RestChatPoster:
         request_id: str,
     ) -> Mapping[str, Any]:
         if self._client is None:
-            self._client = RequestsRest(
-                quota_project=self._config.project,
-                scopes=[_CHAT_BOT_SCOPE],
-            )
+            # A quota-project header requires serviceusage.services.use.
+            # credit-policy-agent does not have that permission, and a
+            # chat.bot token with the header makes spaces.messages.create 403.
+            self._client = RequestsRest(scopes=[_CHAT_BOT_SCOPE])
         url = (
             f"{_CHAT_API}/{parent}/messages"
             f"?requestId={quote(request_id, safe='')}"
@@ -525,7 +525,14 @@ def http_judge(
         return 400, {"text": "Chat event must be a JSON object."}
     try:
         judge_event(event, runtime, poster)
-    except HandlerError:
+    except Exception as exc:
+        print(
+            f"judge failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        if not isinstance(exc, HandlerError):
+            raise
         return 500, {}
     return 200, {}
 

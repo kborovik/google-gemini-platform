@@ -136,14 +136,28 @@ def thread_list_filter(thread: str, *, not_before: float | None = None) -> str:
     return f'createTime > "{stamp}" AND {clause}'
 
 
+def message_names(messages: list[Mapping[str, Any]]) -> set[str]:
+    """Resource names already in the thread before this turn is posted."""
+    names: set[str] = set()
+    for message in messages:
+        name = message.get("name")
+        if isinstance(name, str) and name.strip():
+            names.add(name.strip())
+    return names
+
+
 def follow_up_text(
     messages: list[Mapping[str, Any]],
     *,
     not_before: float | None = None,
+    exclude_names: set[str] | None = None,
 ) -> str:
     """Officer, help, or error text from Chat. The HTTP body is only the ack."""
     texts: list[str] = []
     for message in messages:
+        name = message.get("name")
+        if exclude_names and isinstance(name, str) and name.strip() in exclude_names:
+            continue
         sender = message.get("sender")
         if isinstance(sender, dict) and sender.get("type") == "HUMAN":
             continue
@@ -266,6 +280,11 @@ def invoke_agent(env: dict[str, str], user_text: str) -> str:
     space, thread = require_chat_thread(env)
     message_name = f"{thread}/messages/{uuid.uuid4().hex}"
     started = time.time()
+    # The list filter looks back 5 seconds. That window still contains the
+    # previous turn when the next case starts immediately.
+    already = message_names(
+        list_thread_messages(space=space, thread=thread, not_before=started)
+    )
     body = post_chat_message(
         user_text,
         thread=thread,
@@ -275,7 +294,12 @@ def invoke_agent(env: dict[str, str], user_text: str) -> str:
     ack = body.get("text")
     if ack != ACK_TEXT:
         pytest.fail(f"chat host ack was not {ACK_TEXT!r}: {body}")
-    text = read_follow_up(space=space, thread=thread, not_before=started)
+    text = read_follow_up(
+        space=space,
+        thread=thread,
+        not_before=started,
+        exclude_names=already,
+    )
     if quota_exhausted({"text": text}):
         pytest.fail(f"chat follow-up exhausted quota: {text}")
     print_agent_turn(
@@ -292,6 +316,7 @@ def read_follow_up(
     thread: str,
     timeout: float = 200.0,
     not_before: float | None = None,
+    exclude_names: set[str] | None = None,
 ) -> str:
     """Poll spaces.messages.list until the worker's follow-up is present."""
     deadline = time.monotonic() + timeout
@@ -304,7 +329,11 @@ def read_follow_up(
         except ChatListError as exc:
             pytest.fail(str(exc))
         try:
-            return follow_up_text(messages, not_before=not_before)
+            return follow_up_text(
+                messages,
+                not_before=not_before,
+                exclude_names=exclude_names,
+            )
         except ChatListError as exc:
             pytest.fail(str(exc))
         except AssertionError as exc:
