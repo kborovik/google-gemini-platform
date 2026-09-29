@@ -274,11 +274,16 @@ def _post_chat_once(
 
 
 def invoke_agent(env: dict[str, str], user_text: str) -> str:
-    """Ask the deployed officer. The judgement is the Chat follow-up, not the ack."""
+    """Ask the deployed officer. The judgement is the Chat follow-up, not the ack.
+
+    Each call uses a new Chat user. The officer session is that user plus the
+    thread, so one filing does not remain in context for the next.
+    """
     if not env.get("GOOGLE_CLOUD_PROJECT"):
         pytest.fail("GOOGLE_CLOUD_PROJECT is not set")
     space, thread = require_chat_thread(env)
     message_name = f"{thread}/messages/{uuid.uuid4().hex}"
+    user = f"users/e2e-{uuid.uuid4().hex}"
     started = time.time()
     # The list filter looks back 5 seconds. That window still contains the
     # previous turn when the next case starts immediately.
@@ -289,6 +294,7 @@ def invoke_agent(env: dict[str, str], user_text: str) -> str:
         user_text,
         thread=thread,
         space=space,
+        user=user,
         message_name=message_name,
     )
     ack = body.get("text")
@@ -609,12 +615,16 @@ def assert_manifest_judgement(
     intended_outcome: str,
     expected_outcome: str,
 ) -> None:
-    """Received Judgement decision matches both manifest outcome fields."""
+    """The reply names this filing and its decision matches the manifest."""
     require_manifest_outcomes(
         application_id=application_id,
         intended_outcome=intended_outcome,
         expected_outcome=expected_outcome,
     )
+    if application_id not in text:
+        raise AssertionError(
+            f"{application_id}: reply does not identify that application\n{text}"
+        )
     try:
         assert_expected_decision(text, expected_outcome)
     except AssertionError as exc:

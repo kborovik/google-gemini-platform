@@ -107,7 +107,7 @@ endif
 --wait:
 	@:
 
-index: .venv ## Import both prefixes into data store kb-credit-policies
+index: .venv ## Import client-applications into data store kb-credit-policies
 	$(call header,Indexing Agent Search data store)
 	$(UV) run docgen index $(if $(wait),--wait,)
 
@@ -328,7 +328,7 @@ help:
 	$(info $(yellow)check$(reset)               ruff + unit tests)
 	$(info $(yellow)generate$(reset)            sample applications, local only)
 	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait)
-	$(info $(yellow)index$(reset)               import both prefixes into kb-credit-policies)
+	$(info $(yellow)index$(reset)               import client-applications into kb-credit-policies)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
 	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, judge the last 3 generated filings on the reasoning engine, then the chat service)
 	$(info $(yellow)CHAT_SPACE$(reset)          Credit Policy DM ($(CHAT_SPACE)); CHAT_THREAD is its newest message unless set)

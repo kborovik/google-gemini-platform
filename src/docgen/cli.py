@@ -305,7 +305,7 @@ def upload(
 @click.option(
     "--wait",
     is_flag=True,
-    help="Poll indexed counts until they meet the floors.",
+    help="Poll the indexed application count until it meets the floor.",
 )
 @click.option(
     "--dry-run",
@@ -325,7 +325,7 @@ def index(
     dry_run: bool,
     no_terraform: bool,
 ) -> None:
-    """Import both prefixes into kb-credit-policies. Stamp corpus on client-applications only."""
+    """Import client-applications into kb-credit-policies. Do not import credit-policies."""
     from docgen.search_index import index_config_from_env, run_index
 
     def action() -> None:

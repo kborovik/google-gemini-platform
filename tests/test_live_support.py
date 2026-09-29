@@ -305,23 +305,31 @@ def test_agent_judgement_runs_query_the_engine_before_chat() -> None:
 
 
 def test_assert_manifest_judgement_compares_received_decision() -> None:
+    application_id = "CA-20260220-1771588800000"
     assert_manifest_judgement(
-        "Judgement decision: reject. LTV 72%.",
-        application_id="CA-20260220-1771588800000",
+        f"Judgement decision: reject. LTV 72%. {application_id}",
+        application_id=application_id,
         intended_outcome="rejected",
         expected_outcome="rejected",
     )
     with pytest.raises(AssertionError, match="intended_outcome"):
         assert_manifest_judgement(
-            "decision: reject",
-            application_id="CA-20260220-1771588800000",
+            f"decision: reject {application_id}",
+            application_id=application_id,
             intended_outcome="accepted",
             expected_outcome="rejected",
         )
     with pytest.raises(AssertionError, match="lead decision"):
         assert_manifest_judgement(
-            "decision: accept",
-            application_id="CA-20260220-1771588800000",
+            f"decision: accept {application_id}",
+            application_id=application_id,
             intended_outcome="rejected",
             expected_outcome="rejected",
+        )
+    with pytest.raises(AssertionError, match="does not identify"):
+        assert_manifest_judgement(
+            "Decision: accepted\nApplication ID: CA-20260115-1768478400000",
+            application_id=application_id,
+            intended_outcome="accepted",
+            expected_outcome="accepted",
         )

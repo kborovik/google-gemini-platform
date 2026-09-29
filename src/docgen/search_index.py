@@ -13,16 +13,13 @@ from docgen.constants import (
     CLIENT_APPLICATIONS_CORPUS,
     DEFAULT_APPLICATION_CONTAINER,
     DEFAULT_APPLICATION_OUTPUT_RELATIVE,
-    DEFAULT_CONTAINER,
     DEFAULT_CORPUS,
-    DEFAULT_OUTPUT_RELATIVE,
     MIN_APPLICATION_INDEXED_ITEMS,
-    MIN_INDEXED_ITEMS,
     POLICY_PACK_FILENAME,
     POLL_INTERVAL_SECONDS,
     WAIT_TIMEOUT_SECONDS,
 )
-from docgen.deploy import local_corpus_size, policy_markdown_paths, split_counts
+from docgen.deploy import local_corpus_size, split_counts
 from docgen.env import repo_root, require_env, resolve_env
 from docgen.errors import TalosError
 from docgen.rest import RestClient, raise_for_status
@@ -76,9 +73,7 @@ class IndexConfig:
     project: str
     bucket: str
     data_store_id: str = DEFAULT_CORPUS
-    policy_dir: Path | None = None
     application_dir: Path | None = None
-    policy_prefix: str = DEFAULT_CONTAINER
     application_prefix: str = DEFAULT_APPLICATION_CONTAINER
     wait: bool = False
     dry_run: bool = False
@@ -240,15 +235,6 @@ def indexed_document_uri(document: dict[str, Any]) -> str:
         if corpus != CLIENT_APPLICATIONS_CORPUS:
             return ""
     return uri
-
-
-def policy_object_uris(bucket: str, prefix: str, directory: Path) -> list[str]:
-    """The 12 policy files. `policy-pack.md` is not an indexed policy document."""
-    folder = prefix.strip("/")
-    return [
-        f"gs://{bucket}/{folder}/{path.name}"
-        for path in policy_markdown_paths(directory)
-    ]
 
 
 class GcsMarkdown:
@@ -420,34 +406,22 @@ def run_index(
     echo: Echo = print,
 ) -> None:
     root = repo_root()
-    policy_dir = config.policy_dir or (root / DEFAULT_OUTPUT_RELATIVE)
     application_dir = config.application_dir or (
         root / DEFAULT_APPLICATION_OUTPUT_RELATIVE
     )
-    policy_uris = policy_object_uris(config.bucket, config.policy_prefix, policy_dir)
     application_uri = gcs_markdown_glob(config.bucket, config.application_prefix)
     store = data_store_resource(config.project, config.data_store_id)
     local_applications = local_corpus_size(application_dir)
     if config.wait:
-        local_applications = _assert_local_wait_ready(policy_dir, application_dir)
+        local_applications = _assert_local_wait_ready(application_dir)
     if config.dry_run:
         echo(
-            f"dry-run: would import {len(policy_uris)} policy files, "
-            f"{application_uri} into {store}; "
+            f"dry-run: would import {application_uri} into {store}; "
             f"stamp corpus={CLIENT_APPLICATIONS_CORPUS} on {config.application_prefix}"
         )
         return
 
-    if not policy_uris:
-        raise TalosError(
-            f"policy corpus has no markdown files in {policy_dir}",
-            exit_code=1,
-        )
     search = ops or _default_ops(config)
-    ticker = clock or SystemClock()
-    echo(f"importing {len(policy_uris)} policy files into {store}")
-    policy_operation = search.import_uris(config.data_store_id, policy_uris)
-    _await_operation(search, policy_operation, ticker)
     echo(
         f"importing {application_uri} into {store} "
         f"with corpus={CLIENT_APPLICATIONS_CORPUS}"
@@ -458,14 +432,13 @@ def run_index(
         corpus=CLIENT_APPLICATIONS_CORPUS,
     )
     if not config.wait:
-        echo(f"import operation {policy_operation}")
         echo(f"import operation {application_operation}")
         echo(f"data store {store}")
         return
     _wait_until_indexed(
         search,
         config.data_store_id,
-        [policy_operation, application_operation],
+        [application_operation],
         local_applications,
         clock or SystemClock(),
         echo,
@@ -529,15 +502,8 @@ def _default_ops(config: IndexConfig) -> VertexSearchOps:
     )
 
 
-def _assert_local_wait_ready(policy_dir: Path, application_dir: Path) -> int:
-    policies = local_corpus_size(policy_dir)
+def _assert_local_wait_ready(application_dir: Path) -> int:
     applications = local_corpus_size(application_dir)
-    if policies < MIN_INDEXED_ITEMS:
-        raise TalosError(
-            f"policy corpus has {policies} markdown files; need {MIN_INDEXED_ITEMS}. "
-            "Run `uv run docgen generate policy --local-only`.",
-            exit_code=1,
-        )
     if applications < MIN_APPLICATION_INDEXED_ITEMS:
         raise TalosError(
             f"application corpus has {applications} markdown files; "
@@ -568,33 +534,19 @@ def _wait_until_indexed(
             if not done:
                 still.append(operation)
         pending = still
-        policies, applications = split_counts(ops.list_indexed_uris(data_store_id))
-        if not pending and policies >= MIN_INDEXED_ITEMS and applications >= floor:
-            echo(f"indexed policies={policies} applications={applications}")
+        _, applications = split_counts(ops.list_indexed_uris(data_store_id))
+        if not pending and applications >= floor:
+            echo(f"indexed applications={applications}")
             return
         if clock.monotonic() >= deadline:
             raise TalosError(
-                f"indexed policies={policies} applications={applications}; "
-                f"need policies>={MIN_INDEXED_ITEMS} applications>={floor}",
+                f"indexed applications={applications}; need applications>={floor}",
                 exit_code=1,
             )
         if pending:
             echo(f"waiting for import {', '.join(pending)}")
         else:
             echo("import operations done; waiting for indexed counts")
-        clock.sleep(POLL_INTERVAL_SECONDS)
-
-
-def _await_operation(ops: SearchOps, name: str, clock: Clock) -> None:
-    deadline = clock.monotonic() + WAIT_TIMEOUT_SECONDS
-    while True:
-        done, error = ops.operation_done(name)
-        if error:
-            raise TalosError(f"Agent Search import failed: {error}", exit_code=1)
-        if done:
-            return
-        if clock.monotonic() >= deadline:
-            raise TalosError(f"Agent Search import did not finish: {name}", exit_code=1)
         clock.sleep(POLL_INTERVAL_SECONDS)
 
 
