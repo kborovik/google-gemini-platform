@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
-from collections.abc import Mapping
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from google.adk.agents import Agent
+from google.adk.agents.context_cache_config import ContextCacheConfig
+from google.adk.apps.app import App
 from google.adk.models import Gemini
-from google.adk.tools import AgentTool, VertexAiSearchTool
+from google.adk.tools import FunctionTool
 
 CHAT_MODEL = "gemini-3.8-flash"
 INSTRUCTIONS_PATH = (
@@ -18,22 +27,88 @@ INSTRUCTIONS_PATH = (
 UNCONFIGURED_DATA_STORE = (
     "projects/unset/locations/global/collections/default_collection/dataStores/unset"
 )
-
-RETRIEVAL_DESCRIPTION = (
-    "Searches the one Agent Search data store of published credit policies "
-    "and client applications. Returns passages with source_name or gs:// URIs."
-)
-RETRIEVAL_INSTRUCTION = (
-    "Search the one Agent Search data store that holds the credit-policies "
-    "prefix and the client-applications prefix. Return the retrieved passages. "
-    "Include each document filename (source_name) or gs:// URI from the hit. "
-    "Do not accept, reject, or mark missing-data. Do not invent thresholds. "
-    "If the search returns no passages, say that the search returned no passages."
-)
+# Gemini 3 explicit context-cache floor. ADK also applies this minimum.
+GEMINI_3_MIN_CACHE_TOKENS = 4096
+# Same default as ADK ContextCacheConfig.ttl_seconds. One GCS read per fill.
+CONTEXT_CACHE_TTL_SECONDS = 1800
+CLIENT_APPLICATIONS_CORPUS = "client-applications"
+CORPUS_FILTER = 'corpus: ANY("client-applications")'
+NO_MATCH_SENTENCE = "No application matched that id or name."
+NO_SEARCH_SENTENCE = "No search and no judgement."
+POLICY_PACK_HEADING = "# PolicyPack"
 INTERACTIVE_DESCRIPTION = (
-    "Contoso Demo Bank credit officer. Answers policy questions and evaluates "
-    "applications by calling RetrievalAgent."
+    "Contoso Demo Bank credit officer. Answers policy questions from PolicyPack "
+    "and evaluates one application with lookup_application."
 )
+_APPLICATION_PREFIX = "credit-application-"
+_SEARCH_PAGE_SIZE = 10
+
+PackReader = Callable[[str], tuple[str, str]]
+ObjectReader = Callable[[str], str]
+Clock = Callable[[], float]
+Poster = Callable[[str, dict[str, Any]], dict[str, Any]]
+Searcher = Callable[[str], list["ApplicationHit"]]
+
+
+@dataclass(frozen=True)
+class ApplicationHit:
+    source_name: str
+    uri: str
+    application_id: str
+    text: str
+
+
+class PolicyPackCache:
+    """One read of POLICY_PACK_URI per cache fill.
+
+    Process start and context-cache expiry each call fill. The fill compares
+    content_sha256. A new hash replaces the pack. A failed read keeps the
+    last fill.
+    """
+
+    def __init__(
+        self,
+        uri: str,
+        *,
+        ttl_seconds: float = CONTEXT_CACHE_TTL_SECONDS,
+        reader: PackReader | None = None,
+        clock: Clock | None = None,
+    ) -> None:
+        self.uri = uri.strip()
+        self.ttl_seconds = ttl_seconds
+        self._reader = reader or read_policy_pack
+        self._clock = clock or time.monotonic
+        self.text = ""
+        self.sha256 = ""
+        self._filled_at: float | None = None
+
+    def fill(self) -> str:
+        if not self.uri:
+            return self.text
+        now = self._clock()
+        try:
+            text, digest = self._reader(self.uri)
+        except Exception:
+            # A failed read keeps the last fill and retries on the next turn.
+            return self.text
+        digest = digest.strip().lower()
+        if digest != self.sha256:
+            self.text = text
+            self.sha256 = digest
+        self._filled_at = now
+        return self.text
+
+    def current(self) -> str:
+        if not self.uri:
+            return self.text
+        now = self._clock()
+        if self._filled_at is not None and now - self._filled_at < self.ttl_seconds:
+            return self.text
+        return self.fill()
+
+
+def compose_static_instruction(instructions: str, pack: str) -> str:
+    return f"{instructions.rstrip()}\n\n{POLICY_PACK_HEADING}\n{pack}"
 
 
 def chat_model() -> Gemini:
@@ -49,42 +124,376 @@ def resolve_data_store_id(environ: Mapping[str, str] | None = None) -> str:
     return env.get("DATA_STORE", "").strip()
 
 
-def build_credit_officer(data_store_id: str) -> Agent:
+def split_gs_uri(uri: str) -> tuple[str, str]:
+    if not uri.startswith("gs://"):
+        raise ValueError(f"not a gs URI: {uri}")
+    rest = uri.removeprefix("gs://")
+    bucket, _, name = rest.partition("/")
+    if not bucket or not name:
+        raise ValueError(f"not a gs URI: {uri}")
+    return bucket, name
+
+
+def gcs_bearer_headers(token: str) -> dict[str, str]:
+    """Authorization only.
+
+    A quota project header requires serviceusage.services.use. The agent
+    service account has objectViewer and does not have that permission.
+    """
+    return {"Authorization": f"Bearer {token}"}
+
+
+def gcs_object_url(bucket_name: str, object_name: str, *, media: bool) -> str:
+    quoted = urllib.parse.quote(object_name, safe="")
+    url = f"https://storage.googleapis.com/storage/v1/b/{bucket_name}/o/{quoted}"
+    if media:
+        return url + "?alt=media"
+    return url
+
+
+def gcs_get(url: str) -> bytes:
+    import google.auth
+    from google.auth.transport.requests import Request
+
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    credentials.refresh(Request())
+    request = urllib.request.Request(
+        url,
+        headers=gcs_bearer_headers(credentials.token or ""),
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"GCS read failed: HTTP {exc.code} {detail}") from exc
+
+
+def read_policy_pack(uri: str) -> tuple[str, str]:
+    """One object read. Hash is metadata content_sha256, else the UTF-8 bytes."""
+    bucket_name, object_name = split_gs_uri(uri)
+    meta = json.loads(
+        gcs_get(gcs_object_url(bucket_name, object_name, media=False)).decode("utf-8")
+    )
+    data = gcs_get(gcs_object_url(bucket_name, object_name, media=True))
+    metadata = meta.get("metadata") if isinstance(meta, dict) else None
+    if not isinstance(metadata, dict):
+        metadata = {}
+    digest = str(metadata.get("content_sha256") or "").strip().lower()
+    if not digest:
+        digest = hashlib.sha256(data).hexdigest()
+    return data.decode("utf-8"), digest
+
+
+def lookup_query(application_id: str, customer_name: str) -> str | None:
+    """Exactly one identifier. Both empty or both set means no search."""
+    application = application_id.strip()
+    customer = customer_name.strip()
+    if bool(application) == bool(customer):
+        return None
+    return application or customer
+
+
+def application_id_from_source(source_name: str) -> str:
+    name = source_name.rsplit("/", 1)[-1]
+    if name.endswith(".md"):
+        name = name[:-3]
+    if not name.startswith(_APPLICATION_PREFIX):
+        return ""
+    return name[len(_APPLICATION_PREFIX) :]
+
+
+def parse_application_hits(payload: dict[str, Any]) -> list[ApplicationHit]:
+    hits: list[ApplicationHit] = []
+    seen: set[str] = set()
+    for item in payload.get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        document = item.get("document")
+        if not isinstance(document, dict):
+            document = {}
+        derived = document.get("derivedStructData")
+        if not isinstance(derived, dict):
+            derived = {}
+        content = document.get("content")
+        if not isinstance(content, dict):
+            content = {}
+        uri = ""
+        for candidate in (derived.get("link"), derived.get("uri"), content.get("uri")):
+            if isinstance(candidate, str) and candidate:
+                uri = candidate
+                break
+        source_name = uri.rsplit("/", 1)[-1] if uri else ""
+        key = uri or source_name
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        hits.append(
+            ApplicationHit(
+                source_name=source_name,
+                uri=uri,
+                application_id=application_id_from_source(source_name),
+                text=_hit_text(derived),
+            )
+        )
+    return hits
+
+
+def quoted_search_query(query: str) -> str:
+    escaped = query.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def hit_mentions(hit: ApplicationHit, query: str) -> bool:
+    needle = query.casefold()
+    return any(
+        needle in field.casefold()
+        for field in (hit.source_name, hit.uri, hit.application_id, hit.text)
+    )
+
+
+def matching_hits(hits: list[ApplicationHit], query: str) -> list[ApplicationHit]:
+    return [hit for hit in hits if hit_mentions(hit, query)]
+
+
+def read_gcs_text(uri: str) -> str:
+    bucket_name, object_name = split_gs_uri(uri)
+    return gcs_get(gcs_object_url(bucket_name, object_name, media=True)).decode("utf-8")
+
+
+def body_for_single_hit(
+    hits: list[ApplicationHit], reader: ObjectReader | None
+) -> list[ApplicationHit]:
+    """One surviving hit is the filing, not a search snippet."""
+    if len(hits) != 1 or reader is None:
+        return hits
+    hit = hits[0]
+    if not hit.uri.startswith("gs://"):
+        return []
+    try:
+        body = reader(hit.uri)
+    except Exception:
+        return []
+    if not body.strip():
+        return []
+    return [
+        ApplicationHit(
+            source_name=hit.source_name,
+            uri=hit.uri,
+            application_id=hit.application_id,
+            text=body,
+        )
+    ]
+
+
+def format_lookup_hits(hits: list[ApplicationHit]) -> str:
+    if not hits:
+        return NO_MATCH_SENTENCE
+    if len(hits) > 1:
+        ids = [hit.application_id for hit in hits if hit.application_id]
+        listed = (
+            ", ".join(ids)
+            if ids
+            else ", ".join(hit.source_name for hit in hits if hit.source_name)
+        )
+        return f"Matching application_id values: {listed}. Do not judge."
+    hit = hits[0]
+    lines = [f"source_name: {hit.source_name}", hit.uri, hit.text]
+    return "\n".join(line for line in lines if line)
+
+
+def search_client_applications(
+    data_store_id: str,
+    query: str,
+    *,
+    post: Poster | None = None,
+) -> list[ApplicationHit]:
+    """Exactly one Agent Search request, filtered to client-applications."""
+    send = post or _post_discovery
+    body = {
+        "query": quoted_search_query(query),
+        "filter": CORPUS_FILTER,
+        "pageSize": _SEARCH_PAGE_SIZE,
+        # extractiveContentSpec is Enterprise edition. This store is standard.
+        "contentSearchSpec": {
+            "snippetSpec": {"returnSnippet": True, "maxSnippetCount": 5},
+        },
+    }
+    payload = send(_search_url(data_store_id), body)
+    return parse_application_hits(payload)
+
+
+def context_cache_config() -> ContextCacheConfig:
+    return ContextCacheConfig(
+        min_tokens=GEMINI_3_MIN_CACHE_TOKENS,
+        ttl_seconds=CONTEXT_CACHE_TTL_SECONDS,
+    )
+
+
+def build_credit_officer(
+    data_store_id: str,
+    *,
+    pack: PolicyPackCache | None = None,
+    searcher: Searcher | None = None,
+    object_reader: ObjectReader | None = None,
+) -> Agent:
     store = data_store_id.strip()
     if not store:
         raise ValueError("DATA_STORE is required")
-    retrieval_agent = Agent(
-        name="RetrievalAgent",
-        model=chat_model(),
-        description=RETRIEVAL_DESCRIPTION,
-        instruction=RETRIEVAL_INSTRUCTION,
-        tools=[VertexAiSearchTool(data_store_id=store)],
-        # Both flags and no sub-agents select SingleFlow. AutoFlow would
-        # attach transfer handling.
-        disallow_transfer_to_parent=True,
-        disallow_transfer_to_peers=True,
+    policy_pack = pack or PolicyPackCache(uri="")
+    policy_pack.current()
+    instructions = INSTRUCTIONS_PATH.read_text(encoding="utf-8")
+    bound_search = searcher or (
+        lambda query, store_id=store: search_client_applications(store_id, query)
     )
-    # static_instruction skips {session_state} substitution. The file uses
-    # braces as literal id shapes, such as {application_id}.
-    return Agent(
+
+    def lookup_application(application_id: str = "", customer_name: str = "") -> str:
+        """Look up one client application by application_id or customer_name.
+
+        Pass exactly one argument. Searches kb-credit-policies with filter
+        corpus = client-applications. Does not judge the filing.
+        """
+        query = lookup_query(application_id, customer_name)
+        if query is None:
+            return NO_SEARCH_SENTENCE
+        hits = matching_hits(bound_search(query), query)
+        hits = body_for_single_hit(hits, object_reader)
+        if len(hits) == 1 and not hit_mentions(hits[0], query):
+            hits = []
+        return format_lookup_hits(hits)
+
+    lookup_application.data_store_id = store  # type: ignore[attr-defined]
+
+    agent = Agent(
         name="InteractiveAgent",
         model=chat_model(),
         description=INTERACTIVE_DESCRIPTION,
-        static_instruction=INSTRUCTIONS_PATH.read_text(encoding="utf-8"),
-        tools=[
-            AgentTool(
-                agent=retrieval_agent,
-                propagate_grounding_metadata=True,
-            )
-        ],
+        static_instruction=compose_static_instruction(instructions, policy_pack.text),
+        tools=[FunctionTool(lookup_application)],
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
+    )
+
+    def refresh_policy_pack(callback_context: object, llm_request: object) -> None:
+        del callback_context
+        _apply_pack_fill(agent, policy_pack, instructions, llm_request)
+
+    agent.before_model_callback = refresh_policy_pack
+    return agent
+
+
+def build_credit_officer_app(
+    data_store_id: str,
+    *,
+    pack: PolicyPackCache | None = None,
+    searcher: Searcher | None = None,
+    object_reader: ObjectReader | None = None,
+) -> App:
+    return App(
+        name="credit_officer",
+        root_agent=build_credit_officer(
+            data_store_id,
+            pack=pack,
+            searcher=searcher,
+            object_reader=object_reader,
+        ),
+        context_cache_config=context_cache_config(),
     )
 
 
 def load_root_agent(environ: Mapping[str, str] | None = None) -> Agent:
-    store = resolve_data_store_id(environ) or UNCONFIGURED_DATA_STORE
-    return build_credit_officer(store)
+    env = os.environ if environ is None else environ
+    store = resolve_data_store_id(env) or UNCONFIGURED_DATA_STORE
+    pack = PolicyPackCache(uri=env.get("POLICY_PACK_URI", ""))
+    pack.fill()
+    return build_credit_officer(store, pack=pack, object_reader=read_gcs_text)
+
+
+def _apply_pack_fill(
+    agent: Agent,
+    pack: PolicyPackCache,
+    instructions: str,
+    llm_request: object,
+) -> None:
+    previous = pack.text
+    previous_sha = pack.sha256
+    pack.current()
+    if pack.text == previous and pack.sha256 == previous_sha:
+        return
+    agent.static_instruction = compose_static_instruction(instructions, pack.text)
+    config = getattr(llm_request, "config", None)
+    if config is not None:
+        config.system_instruction = agent.static_instruction
+
+
+def _hit_text(derived: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("extractive_segments", "extractive_answers", "snippets"):
+        values = derived.get(key)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if isinstance(value, str) and value.strip():
+                parts.append(value.strip())
+                continue
+            if not isinstance(value, dict):
+                continue
+            for field in ("content", "snippet"):
+                text = value.get(field)
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+                    break
+    return "\n".join(parts)
+
+
+def _search_url(data_store_id: str) -> str:
+    resource = data_store_id.strip().strip("/")
+    return (
+        "https://discoveryengine.googleapis.com/v1/"
+        f"{resource}/servingConfigs/default_search:search"
+    )
+
+
+def _quota_project(resource: str) -> str:
+    marker = "projects/"
+    start = resource.find(marker)
+    if start < 0:
+        return ""
+    rest = resource[start + len(marker) :]
+    return rest.split("/", 1)[0]
+
+
+def _post_discovery(url: str, body: dict[str, Any]) -> dict[str, Any]:
+    import google.auth
+    from google.auth.transport.requests import Request
+
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    credentials.refresh(Request())
+    payload = json.dumps(body).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {credentials.token}",
+        "Content-Type": "application/json",
+    }
+    quota = _quota_project(url)
+    if quota:
+        headers["x-goog-user-project"] = quota
+    request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"Agent Search failed: HTTP {exc.code} {detail}") from exc
+    parsed = json.loads(raw.decode("utf-8") or "{}")
+    if not isinstance(parsed, dict):
+        raise RuntimeError("Agent Search returned no object")
+    return parsed
 
 
 def _reasoning_engine_app():
@@ -92,12 +501,19 @@ def _reasoning_engine_app():
     # none of them; AdkApp is the object the runtime knows how to serve.
     # enable_tracing records the model request, the reply, and tool results
     # on Cloud Trace spans. AdkApp omits those attributes unless this is set.
-    agent = load_root_agent()
+    # Context cache holds the static prefix when it meets the model minimum.
+    # A cache miss still sends the last PolicyPack fill.
+    # One hit is the filing in GCS. A snippet is only the identity section.
+    app = build_credit_officer_app(
+        resolve_data_store_id() or UNCONFIGURED_DATA_STORE,
+        pack=PolicyPackCache(uri=os.environ.get("POLICY_PACK_URI", "")),
+        object_reader=read_gcs_text,
+    )
     try:
         from vertexai.agent_engines import AdkApp
     except ImportError:
-        return agent
-    return AdkApp(agent=agent, enable_tracing=True)
+        return app.root_agent
+    return AdkApp(app=app, enable_tracing=True)
 
 
 root_agent = _reasoning_engine_app()

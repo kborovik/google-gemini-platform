@@ -211,6 +211,11 @@ def test_terraform_deploys_credit_officer_reasoning_engine() -> None:
         r"value\s+=\s+google_discovery_engine_data_store\.kb_credit_policies\.name",
         body,
     )
+    assert re.search(
+        r'name\s+=\s+"POLICY_PACK_URI"\s+'
+        r'value\s+=\s+"gs://\$\{var\.project\}-credit-docs/credit-policies/policy-pack\.md"',
+        body,
+    )
     archive = re.search(
         r'data "archive_file" "credit_officer" \{(?P<body>.*?)\n\}',
         text,
@@ -223,6 +228,8 @@ def test_terraform_deploys_credit_officer_reasoning_engine() -> None:
         "credit-policy-agent.instructions.md",
         "requirements.txt",
     ]
+    assert "policy-pack.md" not in filenames
+    assert not any(name.startswith("CP-") for name in filenames)
     requirements = (repo_root() / "agents/credit_officer/requirements.txt").read_text(
         encoding="utf-8"
     )

@@ -271,7 +271,7 @@ def upload(
     dry_run: bool,
     no_terraform: bool,
 ) -> None:
-    """Hash-skip both prefixes to the bucket. Does not import the data store."""
+    """Hash-skip both prefixes and write credit-policies/policy-pack.md. Does not import."""
     from docgen.deploy import DeployConfig, run_deploy
 
     def action() -> None:
@@ -325,7 +325,7 @@ def index(
     dry_run: bool,
     no_terraform: bool,
 ) -> None:
-    """Import both GCS prefixes into data store kb-credit-policies."""
+    """Import both prefixes into kb-credit-policies. Stamp corpus on client-applications only."""
     from docgen.search_index import index_config_from_env, run_index
 
     def action() -> None:

@@ -199,8 +199,12 @@ def sync_markdown_directory(
     *,
     force: bool,
     echo: Echo,
+    preserve: set[str] | None = None,
 ) -> int:
-    """Upload `*.md` from directory. Skip when blob metadata content_sha256 matches."""
+    """Upload `*.md` from directory. Skip when blob metadata content_sha256 matches.
+
+    `preserve` names stay in the bucket even when they are not local files.
+    """
     uploaded = 0
     try:
         store.ensure_container()
@@ -222,6 +226,8 @@ def sync_markdown_directory(
             echo(f"{path.name}  blob={url}  uploaded")
             uploaded += 1
         keep = {path.name for path in paths}
+        if preserve:
+            keep.update(preserve)
         for name in store.list_markdown_names():
             if name in keep:
                 continue

@@ -1,5 +1,8 @@
 DEFAULT_CONTAINER = "credit-policies"
 DEFAULT_APPLICATION_CONTAINER = "client-applications"
+POLICY_PACK_FILENAME = "policy-pack.md"
+CLIENT_APPLICATIONS_CORPUS = "client-applications"
+POLICY_PACK_FILE_COUNT = 12
 DEFAULT_APPLICATION_FIXTURES_RELATIVE = "tests/fixtures/client-applications"
 DEFAULT_CORPUS = "kb-credit-policies"
 DEFAULT_CHAT_MODEL = "gemini-3.8-flash"
