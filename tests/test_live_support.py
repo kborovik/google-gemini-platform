@@ -10,9 +10,11 @@ from tests.live_support import (
     assert_expected_decision,
     assert_manifest_judgement,
     chat_message_event,
+    emit_chat_env,
     expected_decision_token,
     follow_up_text,
     thread_list_filter,
+    thread_name_from_messages,
     latest_generated_cases,
     lead_decision_token,
     load_judgement_cases,
@@ -40,6 +42,64 @@ def test_chat_message_event_is_a_human_message() -> None:
     assert message["space"] == {"name": "spaces/e2e"}
     assert message["thread"] == {"name": thread}
     assert message["name"] == f"{thread}/messages/e2e"
+
+
+def test_thread_name_from_messages_uses_the_newest() -> None:
+    space = "spaces/o0dhSqAAAAE"
+    older = {
+        "createTime": "2026-09-28T15:37:15.604911Z",
+        "thread": {"name": f"{space}/threads/awE1NxxibsY"},
+    }
+    newer = {
+        "createTime": "2026-09-28T20:11:06.283407Z",
+        "thread": {"name": f"{space}/threads/0N4FlW9rYWs"},
+    }
+    assert thread_name_from_messages([older, newer], space=space) == (
+        f"{space}/threads/0N4FlW9rYWs"
+    )
+
+
+def test_thread_name_from_messages_ignores_other_spaces() -> None:
+    space = "spaces/o0dhSqAAAAE"
+    with pytest.raises(Exception, match="has no thread"):
+        thread_name_from_messages(
+            [
+                {
+                    "createTime": "2026-09-28T20:11:06.283407Z",
+                    "thread": {"name": "spaces/OTHER/threads/abc"},
+                }
+            ],
+            space=space,
+        )
+
+
+def test_emit_chat_env_keeps_a_thread_already_set(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("CHAT_SPACE", "spaces/o0dhSqAAAAE")
+    monkeypatch.setenv("CHAT_THREAD", "spaces/o0dhSqAAAAE/threads/0N4FlW9rYWs")
+    emit_chat_env()
+    out = capsys.readouterr().out
+    assert "export CHAT_SPACE=spaces/o0dhSqAAAAE" in out
+    assert "export CHAT_THREAD=spaces/o0dhSqAAAAE/threads/0N4FlW9rYWs" in out
+
+
+def test_emit_chat_env_fills_the_thread_from_messages(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    space = "spaces/o0dhSqAAAAE"
+    monkeypatch.setenv("CHAT_SPACE", space)
+    monkeypatch.delenv("CHAT_THREAD", raising=False)
+    emit_chat_env(
+        [
+            {
+                "createTime": "2026-09-28T20:11:06.283407Z",
+                "thread": {"name": f"{space}/threads/0N4FlW9rYWs"},
+            }
+        ]
+    )
+    out = capsys.readouterr().out
+    assert f"export CHAT_THREAD={space}/threads/0N4FlW9rYWs" in out
 
 
 def test_thread_list_filter_is_an_unquoted_resource_name() -> None:

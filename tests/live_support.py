@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -28,9 +29,11 @@ _QUOTA_RETRY_WAITS = (30.0, 60.0)
 _E2E_SPACE = "spaces/e2e"
 _E2E_USER = "users/e2e"
 # `make e2e` queries the reasoning engine, then the same filings through chat.
+ENGINE_SURFACE = "google_vertex_ai_reasoning_engine"
+CHAT_SURFACE = "google_cloud_run_v2_service.chat"
 AGENT_SURFACES = (
-    "google_vertex_ai_reasoning_engine",
-    "google_cloud_run_v2_service.chat",
+    ENGINE_SURFACE,
+    CHAT_SURFACE,
 )
 _ENGINE_ENV = (
     "GOOGLE_CLOUD_PROJECT",
@@ -74,9 +77,52 @@ def require_chat_thread(env: Mapping[str, str]) -> tuple[str, str]:
     """Real space and thread. Synthetic ids are not Chat resources."""
     space = env.get("CHAT_SPACE", "").strip()
     thread = env.get("CHAT_THREAD", "").strip()
-    if not space.startswith("spaces/") or not thread.startswith(f"{space}/threads/"):
+    if not _chat_thread_names(space, thread):
         pytest.skip("CHAT_SPACE and CHAT_THREAD must name a real Chat space and thread")
     return space, thread
+
+
+def _chat_thread_names(space: str, thread: str) -> bool:
+    return space.startswith("spaces/") and thread.startswith(f"{space}/threads/")
+
+
+def thread_name_from_messages(messages: list[Mapping[str, Any]], *, space: str) -> str:
+    """thread.name of the newest message in one space."""
+    ranked: list[tuple[float, str]] = []
+    for message in messages:
+        thread = message.get("thread")
+        name = thread.get("name") if isinstance(thread, dict) else ""
+        if not isinstance(name, str):
+            continue
+        name = name.strip()
+        if not name.startswith(f"{space}/threads/"):
+            continue
+        ranked.append((_create_stamp(message), name))
+    if not ranked:
+        raise ChatListError(f"{space} has no thread")
+    ranked.sort()
+    return ranked[-1][1]
+
+
+def emit_chat_env(messages: list[Mapping[str, Any]] | None = None) -> None:
+    """Print shell exports. A set CHAT_THREAD is kept; otherwise list the space."""
+    import shlex
+
+    space = os.environ.get("CHAT_SPACE", "").strip()
+    thread = os.environ.get("CHAT_THREAD", "").strip()
+    if not space.startswith("spaces/"):
+        raise SystemExit("CHAT_SPACE must be spaces/{id}")
+    if not thread:
+        try:
+            if messages is None:
+                messages = list_recent_messages(space)
+            thread = thread_name_from_messages(messages, space=space)
+        except ChatListError as exc:
+            raise SystemExit(str(exc)) from exc
+    if not _chat_thread_names(space, thread):
+        raise SystemExit("CHAT_THREAD must be {CHAT_SPACE}/threads/{thread}")
+    print(f"export CHAT_SPACE={shlex.quote(space)}")
+    print(f"export CHAT_THREAD={shlex.quote(thread)}")
 
 
 def thread_list_filter(thread: str, *, not_before: float | None = None) -> str:
@@ -235,7 +281,7 @@ def invoke_agent(env: dict[str, str], user_text: str) -> str:
     print_agent_turn(
         user_text,
         text,
-        surface="google_cloud_run_v2_service.chat",
+        surface=CHAT_SURFACE,
     )
     return text
 
@@ -271,6 +317,32 @@ def read_follow_up(
 # spaces.messages.list does not accept chat.bot. User auth lists the thread.
 _CHAT_LIST_SCOPE = "https://www.googleapis.com/auth/chat.messages.readonly"
 _LIST_PAGE_CAP = 20
+
+
+def list_recent_messages(space: str, *, page_size: int = 10) -> list[dict[str, Any]]:
+    """Newest messages in a space. One page is enough to name a thread."""
+    try:
+        response = requests.get(
+            f"https://chat.googleapis.com/v1/{space}/messages",
+            headers={"Authorization": f"Bearer {_chat_list_token()}"},
+            params={"pageSize": page_size, "orderBy": "createTime DESC"},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise ChatListError(f"spaces.messages.list failed: {exc}") from exc
+    if response.status_code != 200:
+        raise ChatListError(
+            f"spaces.messages.list returned {response.status_code}: "
+            f"{response.text[:500]}"
+        )
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise ChatListError("spaces.messages.list returned non-JSON") from exc
+    messages = body.get("messages") if isinstance(body, dict) else None
+    if not isinstance(messages, list):
+        return []
+    return [item for item in messages if isinstance(item, dict)]
 
 
 def list_thread_messages(
@@ -327,12 +399,12 @@ def _chat_list_token() -> str:
         credentials, _detected = google.auth.default(scopes=[_CHAT_LIST_SCOPE])
         credentials.refresh(google.auth.transport.requests.Request())
     except google.auth.exceptions.GoogleAuthError as exc:
-        pytest.fail(
+        raise ChatListError(
             f"spaces.messages.list needs a user token with {_CHAT_LIST_SCOPE}: {exc}"
-        )
+        ) from exc
     token = getattr(credentials, "token", None)
     if not isinstance(token, str) or not token:
-        pytest.fail("chat list token was not issued")
+        raise ChatListError("chat list token was not issued")
     return token
 
 
@@ -386,7 +458,7 @@ def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:
         print_agent_turn(
             user_text,
             text,
-            surface="google_vertex_ai_reasoning_engine",
+            surface=ENGINE_SURFACE,
         )
         return text
     pytest.fail("reasoning engine streamQuery failed")
@@ -394,9 +466,9 @@ def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:
 
 def invoke_on_surface(env: dict[str, str], user_text: str, surface: str) -> str:
     """Query one deployed surface. Engine and chat stay separate calls."""
-    if surface == "google_vertex_ai_reasoning_engine":
+    if surface == ENGINE_SURFACE:
         return invoke_reasoning_engine(env, user_text)
-    if surface == "google_cloud_run_v2_service.chat":
+    if surface == CHAT_SURFACE:
         return invoke_agent(env, user_text)
     pytest.fail(f"unknown agent surface: {surface}")
 

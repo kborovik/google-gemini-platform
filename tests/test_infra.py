@@ -263,6 +263,44 @@ def test_makefile_has_no_chat_recipe() -> None:
     assert "need-cloudflared" not in text
 
 
+def test_makefile_chat_thread_uses_desktop_client() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "CHAT_CLIENT_SECRET := google-auth-secret-python-e2e.json.gpg" in text
+    assert "-include $(CHAT_THREAD_FILE)" in text
+    match = re.search(r"^chat-thread:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert match is not None
+    body = match.group(1)
+    assert "gpg --yes --quiet --decrypt --output" in body
+    assert '--client-id-file="$$secret"' in body
+    assert "--no-browser" not in body
+    assert "--no-launch-browser" not in body
+    assert "https://www.googleapis.com/auth/chat.messages.readonly" in body
+    assert "env -u CHAT_THREAD" in body
+    assert "printf 'CHAT_THREAD ?= %s\\n'" in body
+
+
+def test_makefile_e2e_resolves_chat_thread() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "CHAT_SPACE ?= spaces/o0dhSqAAAAE" in text
+    assert "export CHAT_SPACE" in text
+    assert "export CHAT_THREAD" in text
+    match = re.search(r"^e2e:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert match is not None
+    body = match.group(1)
+    assert "from tests.live_support import emit_chat_env; emit_chat_env()" in body
+    assert 'eval "$$chat_env"' in body
+
+
+def test_makefile_preflight_sets_gcloud_project() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "export CLOUDSDK_CORE_PROJECT := $(google_project)" in text
+    match = re.search(r"^preflight:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert match is not None
+    body = match.group(1)
+    assert "gcloud config set core/project $(google_project)" in body
+    assert "gcloud config get-value project" in body
+
+
 def test_makefile_index_wait_flag() -> None:
     text = (repo_root() / "Makefile").read_text(encoding="utf-8")
     match = re.search(r"^index:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
