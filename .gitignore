@@ -1,5 +1,5 @@
 .env
-.chat-thread.env
+.google-chat.env
 data/client-applications/*.md
 data/client-applications/manifest.json
 .venv/

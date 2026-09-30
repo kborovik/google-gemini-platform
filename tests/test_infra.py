@@ -267,7 +267,7 @@ def test_makefile_chat_thread_uses_desktop_client() -> None:
     text = (repo_root() / "Makefile").read_text(encoding="utf-8")
     assert "CHAT_CLIENT_SECRET := google-auth-secret-python-e2e.json.gpg" in text
     assert "-include $(CHAT_THREAD_FILE)" in text
-    match = re.search(r"^chat-thread:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    match = re.search(r"^google-chat:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
     assert match is not None
     body = match.group(1)
     assert "gpg --yes --quiet --decrypt --output" in body

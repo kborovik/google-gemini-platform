@@ -52,7 +52,7 @@ TF_VAR_FILE := $(PROJECT).tfvars
 
 git_root := $(shell git rev-parse --show-toplevel)
 terraform_dir := $(git_root)/infra
-CHAT_THREAD_FILE := $(git_root)/.chat-thread.env
+CHAT_THREAD_FILE := $(git_root)/.google-chat.env
 -include $(CHAT_THREAD_FILE)
 terraform_tfvars := $(terraform_dir)/$(TF_VAR_FILE)
 terraform_bucket := $(TFSTATE_BUCKET)
@@ -67,7 +67,7 @@ default: help
 .PHONY: terraform terraform-config terraform-fmt terraform-init terraform-validate
 .PHONY: terraform-plan terraform-apply terraform-destroy pause terraform-clean terraform-show terraform-list
 .PHONY: terraform-state-recursive terraform-state-versions terraform-state-unlock prompt
-.PHONY: google google-auth google-logout google-config chat-thread
+.PHONY: google google-auth google-logout google-config google-chat
 .PHONY: release major minor patch
 .PHONY: _release-pre _release-bump _release-tag _release-gh
 
@@ -243,7 +243,7 @@ prompt:
 
 ##@ Google Cloud:
 
-google: google-config ## Point the Google CLI at $(PROJECT)
+google: google-config google-auth ## Point the Google CLI at $(PROJECT)
 
 google-auth: ## Log in and refresh application-default credentials
 	$(call need-gcloud)
@@ -258,7 +258,7 @@ google-logout: ## Revoke gcloud credentials
 
 # Decrypt the desktop client and sign in with chat.messages.readonly, which
 # gcloud's own client rejects. Record CHAT_THREAD for the next make.
-chat-thread: .venv ## Decrypt the desktop client, sign in, and record CHAT_THREAD
+google-chat: .venv ## Decrypt the desktop client, sign in, and record CHAT_THREAD
 	$(call need-gcloud)
 	$(call need-gpg)
 	$(call header,Resolving Chat thread)
@@ -335,7 +335,7 @@ help:
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
 	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, refresh tokens, judge the last 3 generated filings on the reasoning engine, then the chat service)
 	$(info $(yellow)CHAT_SPACE$(reset)          Credit Policy DM ($(CHAT_SPACE)); CHAT_THREAD is its newest message unless set)
-	$(info $(yellow)chat-thread$(reset)         decrypt the desktop client, sign in, and record CHAT_THREAD)
+	$(info $(yellow)google-chat$(reset)         decrypt the desktop client, sign in, and record CHAT_THREAD)
 	$(info $(yellow)terraform$(reset)           plan, confirm, then apply)
 	$(info $(yellow)terraform-plan$(reset)      plan in $(PROJECT))
 	$(info $(yellow)terraform-apply$(reset)     apply; write infra/outputs.json)
