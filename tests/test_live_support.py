@@ -13,8 +13,10 @@ from tests.live_support import (
     emit_chat_env,
     expected_decision_token,
     follow_up_text,
+    release_thread_session,
     thread_list_filter,
     thread_name_from_messages,
+    thread_session_url,
     latest_generated_cases,
     lead_decision_token,
     load_judgement_cases,
@@ -28,6 +30,91 @@ pytestmark = pytest.mark.unit
 def test_quota_exhausted_matches_stream_query_429() -> None:
     assert quota_exhausted({"text": "streamQuery failed: 429 RESOURCE_EXHAUSTED."})
     assert not quota_exhausted({"text": "decision: accept"})
+
+
+class _Response:
+    def __init__(self, status_code: int, text: str = "") -> None:
+        self.status_code = status_code
+        self.text = text
+
+
+class _FakeHttp:
+    def __init__(self, statuses: list[int]) -> None:
+        self._statuses = list(statuses)
+        self.calls: list[tuple[str, str]] = []
+
+    def delete(self, url: str, headers: dict[str, str], timeout: float) -> _Response:
+        self.calls.append(("DELETE", url))
+        return _Response(self._statuses.pop(0), "denied")
+
+    def get(self, url: str, headers: dict[str, str], timeout: float) -> _Response:
+        self.calls.append(("GET", url))
+        return _Response(self._statuses.pop(0))
+
+
+_SESSION_ENV = {
+    "GOOGLE_CLOUD_PROJECT": "lab5-gemini-dev1",
+    "GOOGLE_CLOUD_LOCATION": "us-east1",
+    "REASONING_ENGINE": "1180886483347701760",
+}
+_SESSION_URL = (
+    "https://us-east1-aiplatform.googleapis.com/v1beta1/"
+    "projects/lab5-gemini-dev1/locations/us-east1/"
+    "reasoningEngines/1180886483347701760/sessions/"
+    "spaces-o0dhsqaaaae-spaces-o0dhsqaaaae-threads-hjjymkasyn8"
+)
+
+
+def test_thread_session_url_folds_the_space_and_thread() -> None:
+    url = thread_session_url(
+        _SESSION_ENV,
+        space="spaces/o0dhSqAAAAE",
+        thread="spaces/o0dhSqAAAAE/threads/hJjyMKaSyN8",
+    )
+    assert url == _SESSION_URL
+
+
+def test_release_thread_session_treats_missing_as_done() -> None:
+    http = _FakeHttp([404])
+    release_thread_session(
+        _SESSION_ENV,
+        space="spaces/o0dhSqAAAAE",
+        thread="spaces/o0dhSqAAAAE/threads/hJjyMKaSyN8",
+        token="token",
+        http=http,
+    )
+    assert http.calls == [("DELETE", _SESSION_URL)]
+
+
+def test_release_thread_session_waits_until_the_session_is_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("tests.live_support.time.sleep", lambda _seconds: None)
+    http = _FakeHttp([200, 200, 404])
+    release_thread_session(
+        _SESSION_ENV,
+        space="spaces/o0dhSqAAAAE",
+        thread="spaces/o0dhSqAAAAE/threads/hJjyMKaSyN8",
+        token="token",
+        http=http,
+    )
+    assert http.calls == [
+        ("DELETE", _SESSION_URL),
+        ("GET", _SESSION_URL),
+        ("GET", _SESSION_URL),
+    ]
+
+
+def test_release_thread_session_reports_a_rejected_delete() -> None:
+    http = _FakeHttp([403])
+    with pytest.raises(pytest.fail.Exception, match="403"):
+        release_thread_session(
+            _SESSION_ENV,
+            space="spaces/o0dhSqAAAAE",
+            thread="spaces/o0dhSqAAAAE/threads/hJjyMKaSyN8",
+            token="token",
+            http=http,
+        )
 
 
 def test_chat_message_event_is_a_human_message() -> None:

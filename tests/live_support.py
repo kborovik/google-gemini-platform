@@ -273,47 +273,131 @@ def _post_chat_once(
     return body
 
 
+def thread_session_url(env: Mapping[str, str], *, space: str, thread: str) -> str:
+    """streamQuery session URL for one Chat space and thread.
+
+    The session id is the space and thread only. Vertex stores that id once
+    per reasoning engine and binds it to one user.
+    """
+    project = env.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    location = env.get("GOOGLE_CLOUD_LOCATION", "").strip()
+    engine = env.get("REASONING_ENGINE", "").strip()
+    if not project or not location or not engine:
+        pytest.fail(
+            "thread session release needs GOOGLE_CLOUD_PROJECT, "
+            "GOOGLE_CLOUD_LOCATION, and REASONING_ENGINE"
+        )
+    chat = _chat_main()
+    try:
+        query_url = chat.stream_query_url(project, location, engine)
+    except chat.HandlerError as exc:
+        pytest.fail(str(exc))
+    session = chat.session_id(space, thread)
+    return f"{query_url.split(':streamQuery', 1)[0]}/sessions/{session}"
+
+
+def release_thread_session(
+    env: Mapping[str, str],
+    *,
+    space: str,
+    thread: str,
+    token: str | None = None,
+    http: Any = requests,
+) -> None:
+    """Delete the thread session so the next user can create it.
+
+    A streamQuery with a different user fails while the id still exists.
+    Missing (HTTP 404) is already released.
+    """
+    url = thread_session_url(env, space=space, thread=thread)
+    bearer = token if token is not None else _cloud_platform_token()
+    headers = {"Authorization": f"Bearer {bearer}"}
+    try:
+        deleted = http.delete(url, headers=headers, timeout=30)
+    except requests.RequestException as exc:
+        pytest.fail(f"DELETE {url} failed: {exc}")
+    if deleted.status_code == 404:
+        return
+    if deleted.status_code not in (200, 204):
+        detail = getattr(deleted, "text", "") or ""
+        pytest.fail(f"DELETE {url} returned {deleted.status_code}: {detail[:300]}")
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            got = http.get(url, headers=headers, timeout=30)
+        except requests.RequestException as exc:
+            pytest.fail(f"GET {url} failed: {exc}")
+        if got.status_code == 404:
+            return
+        if time.monotonic() >= deadline:
+            pytest.fail(f"session still present after delete: HTTP {got.status_code}")
+        time.sleep(0.5)
+
+
+def _cloud_platform_token() -> str:
+    import google.auth
+    import google.auth.exceptions
+    import google.auth.transport.requests
+
+    try:
+        credentials, _detected = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        credentials.refresh(google.auth.transport.requests.Request())
+    except google.auth.exceptions.GoogleAuthError as exc:
+        pytest.fail(f"cloud-platform token was not issued: {exc}")
+    token = getattr(credentials, "token", None)
+    if not isinstance(token, str) or not token:
+        pytest.fail("cloud-platform token was not issued")
+    return token
+
+
 def invoke_agent(env: dict[str, str], user_text: str) -> str:
     """Ask the deployed officer. The judgement is the Chat follow-up, not the ack.
 
-    Each call uses a new Chat user. The officer session is that user plus the
-    thread, so one filing does not remain in context for the next.
+    Each call uses a new Chat user and deletes the thread session first.
+    Vertex binds that session id to one user, so a new user cannot query it
+    until it is gone. The session is deleted again after the reply.
     """
     if not env.get("GOOGLE_CLOUD_PROJECT"):
         pytest.fail("GOOGLE_CLOUD_PROJECT is not set")
     space, thread = require_chat_thread(env)
     message_name = f"{thread}/messages/{uuid.uuid4().hex}"
     user = f"users/e2e-{uuid.uuid4().hex}"
-    started = time.time()
-    # The list filter looks back 5 seconds. That window still contains the
-    # previous turn when the next case starts immediately.
-    already = message_names(
-        list_thread_messages(space=space, thread=thread, not_before=started)
-    )
-    body = post_chat_message(
-        user_text,
-        thread=thread,
-        space=space,
-        user=user,
-        message_name=message_name,
-    )
-    ack = body.get("text")
-    if ack != ACK_TEXT:
-        pytest.fail(f"chat host ack was not {ACK_TEXT!r}: {body}")
-    text = read_follow_up(
-        space=space,
-        thread=thread,
-        not_before=started,
-        exclude_names=already,
-    )
-    if quota_exhausted({"text": text}):
-        pytest.fail(f"chat follow-up exhausted quota: {text}")
-    print_agent_turn(
-        user_text,
-        text,
-        surface=CHAT_SURFACE,
-    )
-    return text
+    release_thread_session(env, space=space, thread=thread)
+    try:
+        started = time.time()
+        # The list filter looks back 5 seconds. That window still contains the
+        # previous turn when the next case starts immediately.
+        already = message_names(
+            list_thread_messages(space=space, thread=thread, not_before=started)
+        )
+        body = post_chat_message(
+            user_text,
+            thread=thread,
+            space=space,
+            user=user,
+            message_name=message_name,
+        )
+        ack = body.get("text")
+        if ack != ACK_TEXT:
+            pytest.fail(f"chat host ack was not {ACK_TEXT!r}: {body}")
+        text = read_follow_up(
+            space=space,
+            thread=thread,
+            not_before=started,
+            exclude_names=already,
+        )
+        if quota_exhausted({"text": text}):
+            pytest.fail(f"chat follow-up exhausted quota: {text}")
+        print_agent_turn(
+            user_text,
+            text,
+            surface=CHAT_SURFACE,
+        )
+        return text
+    finally:
+        release_thread_session(env, space=space, thread=thread)
 
 
 def read_follow_up(
