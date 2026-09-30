@@ -146,14 +146,14 @@ def message_names(messages: list[Mapping[str, Any]]) -> set[str]:
     return names
 
 
-def follow_up_text(
+def follow_up_message(
     messages: list[Mapping[str, Any]],
     *,
     not_before: float | None = None,
     exclude_names: set[str] | None = None,
-) -> str:
-    """Officer, help, or error text from Chat. The HTTP body is only the ack."""
-    texts: list[str] = []
+) -> Mapping[str, Any]:
+    """Latest officer, help, or error message. The HTTP body is only the ack."""
+    chosen: Mapping[str, Any] | None = None
     for message in messages:
         name = message.get("name")
         if exclude_names and isinstance(name, str) and name.strip() in exclude_names:
@@ -163,12 +163,77 @@ def follow_up_text(
             continue
         if not_before is not None and not _created_after(message, not_before):
             continue
-        text = message.get("text")
-        if isinstance(text, str) and text.strip() and text.strip() != ACK_TEXT:
-            texts.append(text.strip())
-    if not texts:
+        if not reply_text(message):
+            continue
+        chosen = message
+    if chosen is None:
         raise AssertionError("chat follow-up message is missing")
-    return texts[-1]
+    return chosen
+
+
+def follow_up_text(
+    messages: list[Mapping[str, Any]],
+    *,
+    not_before: float | None = None,
+    exclude_names: set[str] | None = None,
+) -> str:
+    """Officer, help, or error text from Chat, including judgement-card rows."""
+    return reply_text(
+        follow_up_message(messages, not_before=not_before, exclude_names=exclude_names)
+    )
+
+
+def reply_text(message: Mapping[str, Any]) -> str:
+    """Message text plus the card header and widget rows."""
+    chunks: list[str] = []
+    text = message.get("text")
+    if isinstance(text, str):
+        stripped = text.strip()
+        if stripped and stripped != ACK_TEXT:
+            chunks.append(stripped)
+    chunks.extend(_card_chunks(message.get("cardsV2")))
+    return "\n".join(chunks)
+
+
+def _card_chunks(cards: object) -> list[str]:
+    if not isinstance(cards, list):
+        return []
+    chunks: list[str] = []
+    for item in cards:
+        if not isinstance(item, dict):
+            continue
+        card = item.get("card")
+        if not isinstance(card, dict):
+            continue
+        header = card.get("header")
+        if isinstance(header, dict):
+            for key in ("title", "subtitle"):
+                value = header.get(key)
+                if isinstance(value, str) and value.strip():
+                    chunks.append(value.strip())
+        sections = card.get("sections")
+        if not isinstance(sections, list):
+            continue
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            section_header = section.get("header")
+            if isinstance(section_header, str) and section_header.strip():
+                chunks.append(section_header.strip())
+            widgets = section.get("widgets")
+            if not isinstance(widgets, list):
+                continue
+            for widget in widgets:
+                if not isinstance(widget, dict):
+                    continue
+                decorated = widget.get("decoratedText")
+                if not isinstance(decorated, dict):
+                    continue
+                for key in ("topLabel", "text", "bottomLabel"):
+                    value = decorated.get(key)
+                    if isinstance(value, str) and value.strip():
+                        chunks.append(value.strip())
+    return chunks
 
 
 def _created_after(message: Mapping[str, Any], not_before: float) -> bool:
@@ -353,7 +418,12 @@ def _cloud_platform_token() -> str:
 
 
 def invoke_agent(env: dict[str, str], user_text: str) -> str:
-    """Ask the deployed officer. The judgement is the Chat follow-up, not the ack.
+    """Ask the deployed officer. The judgement is the Chat follow-up, not the ack."""
+    return reply_text(invoke_agent_message(env, user_text))
+
+
+def invoke_agent_message(env: dict[str, str], user_text: str) -> Mapping[str, Any]:
+    """Post one turn and return the worker follow-up, including any card.
 
     Each call uses a new Chat user and deletes the thread session first.
     Vertex binds that session id to one user, so a new user cannot query it
@@ -382,12 +452,13 @@ def invoke_agent(env: dict[str, str], user_text: str) -> str:
         ack = body.get("text")
         if ack != ACK_TEXT:
             pytest.fail(f"chat host ack was not {ACK_TEXT!r}: {body}")
-        text = read_follow_up(
+        message = read_follow_up_message(
             space=space,
             thread=thread,
             not_before=started,
             exclude_names=already,
         )
+        text = reply_text(message)
         if quota_exhausted({"text": text}):
             pytest.fail(f"chat follow-up exhausted quota: {text}")
         print_agent_turn(
@@ -395,7 +466,7 @@ def invoke_agent(env: dict[str, str], user_text: str) -> str:
             text,
             surface=CHAT_SURFACE,
         )
-        return text
+        return message
     finally:
         release_thread_session(env, space=space, thread=thread)
 
@@ -409,6 +480,26 @@ def read_follow_up(
     exclude_names: set[str] | None = None,
 ) -> str:
     """Poll spaces.messages.list until the worker's follow-up is present."""
+    return reply_text(
+        read_follow_up_message(
+            space=space,
+            thread=thread,
+            timeout=timeout,
+            not_before=not_before,
+            exclude_names=exclude_names,
+        )
+    )
+
+
+def read_follow_up_message(
+    *,
+    space: str,
+    thread: str,
+    timeout: float = 200.0,
+    not_before: float | None = None,
+    exclude_names: set[str] | None = None,
+) -> Mapping[str, Any]:
+    """Poll spaces.messages.list until the worker's follow-up is present."""
     deadline = time.monotonic() + timeout
     last_error = "chat follow-up message is missing"
     while True:
@@ -419,7 +510,7 @@ def read_follow_up(
         except ChatListError as exc:
             pytest.fail(str(exc))
         try:
-            return follow_up_text(
+            return follow_up_message(
                 messages,
                 not_before=not_before,
                 exclude_names=exclude_names,
@@ -565,7 +656,8 @@ def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:
             )
         except chat.HandlerError as exc:
             message = str(exc)
-            if "RESOURCE_EXHAUSTED" in message and attempt < len(waits) - 1:
+            transient = "RESOURCE_EXHAUSTED" in message or "INTERNAL" in message
+            if transient and attempt < len(waits) - 1:
                 continue
             pytest.fail(f"reasoning engine streamQuery failed: {message}")
         if not isinstance(text, str) or not text.strip():
@@ -692,6 +784,73 @@ def require_manifest_outcomes(
         )
 
 
+_CARD_HEADER_TITLES = {
+    "accepted": "Accepted",
+    "rejected": "Rejected",
+    "missing-data": "Missing data",
+}
+
+
+def assert_judgement_card(
+    message: Mapping[str, Any],
+    *,
+    application_id: str,
+    expected_outcome: str,
+) -> None:
+    """One-id Chat follow-up is a judgement card. Markdown text is not a card."""
+    text = message.get("text")
+    shown = text.strip() if isinstance(text, str) else ""
+    cards = message.get("cardsV2")
+    if not isinstance(cards, list) or len(cards) != 1 or not isinstance(cards[0], dict):
+        raise AssertionError(
+            f"{application_id}: follow-up is not one judgement card\n{shown}"
+        )
+    wrapper = cards[0]
+    if wrapper.get("cardId") != "judgement":
+        raise AssertionError(
+            f"{application_id}: cardId {wrapper.get('cardId')!r} != 'judgement'\n{shown}"
+        )
+    card = wrapper.get("card")
+    if not isinstance(card, dict):
+        raise AssertionError(
+            f"{application_id}: judgement card has no card body\n{shown}"
+        )
+    header = card.get("header")
+    if not isinstance(header, dict):
+        raise AssertionError(f"{application_id}: judgement card has no header\n{shown}")
+    title = _CARD_HEADER_TITLES.get(expected_outcome, "")
+    if header.get("title") != title:
+        raise AssertionError(
+            f"{application_id}: header title {header.get('title')!r} != {title!r}\n{shown}"
+        )
+    subtitle = header.get("subtitle")
+    if not isinstance(subtitle, str) or application_id not in subtitle:
+        raise AssertionError(
+            f"{application_id}: header subtitle {subtitle!r} "
+            "does not name that application\n"
+            f"{shown}"
+        )
+    if (
+        not isinstance(text, str)
+        or "\n" in text
+        or not text.startswith(f"Decision: {expected_outcome}.")
+    ):
+        raise AssertionError(
+            f"{application_id}: card text is not one decision line\n{shown}"
+        )
+    blob = json.dumps(wrapper)
+    if (
+        "**" in text
+        or "###" in text
+        or "**" in blob
+        or "###" in blob
+        or "markupSyntax" in blob
+    ):
+        raise AssertionError(
+            f"{application_id}: judgement card contains markdown\n{shown}"
+        )
+
+
 def assert_manifest_judgement(
     text: str,
     *,
@@ -724,8 +883,9 @@ def expected_decision_token(expected_judgement: str) -> str:
 
 
 # First Judgement `decision` field. Longer tokens first so "accepted" wins over "accept".
+# JSON puts a quote between the key and the colon: "decision": "accepted".
 _LEAD_DECISION = re.compile(
-    r"\bdecision\b(?:\s*\*\*)?[\s:*–=-]+[`'\"]*"
+    r"\bdecision\b(?:\s*\*\*)?[`'\"]*[\s:*–=-]+[`'\"]*"
     r"(accepted|rejected|missing-data|accept|reject|missing)\b",
     re.IGNORECASE,
 )

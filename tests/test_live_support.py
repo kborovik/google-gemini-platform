@@ -8,6 +8,7 @@ import pytest
 from tests.live_support import (
     agent_judgement_runs,
     assert_expected_decision,
+    assert_judgement_card,
     assert_manifest_judgement,
     chat_message_event,
     emit_chat_env,
@@ -250,6 +251,88 @@ def test_follow_up_text_skips_the_human_turn() -> None:
         follow_up_text([{"text": "Evaluate CA-1", "sender": {"type": "HUMAN"}}])
 
 
+def test_follow_up_text_includes_judgement_card_rows() -> None:
+    application_id = "CA-20260930-1790777545758"
+    text = follow_up_text(
+        [
+            {
+                "text": "Decision: rejected. Ronan Calder. LTV and DSCR fail.",
+                "cardsV2": [
+                    {
+                        "cardId": "judgement",
+                        "card": {
+                            "header": {
+                                "title": "Rejected",
+                                "subtitle": f"{application_id}, Ronan Calder",
+                            },
+                            "sections": [
+                                {
+                                    "header": "Findings",
+                                    "widgets": [
+                                        {
+                                            "decoratedText": {
+                                                "topLabel": "LTV",
+                                                "text": "78% exceeds 65%.",
+                                                "bottomLabel": (
+                                                    "CP-CRE-2026-01-commercial-real-estate.md"
+                                                ),
+                                            }
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ]
+    )
+    assert application_id in text
+    assert "Decision: rejected. Ronan Calder. LTV and DSCR fail." in text
+    assert "78% exceeds 65%." in text
+    assert "**" not in text
+    assert "###" not in text
+
+
+def test_judgement_card_rejects_the_markdown_dump() -> None:
+    message = {
+        "text": (
+            "**Decision**: rejected\n\n"
+            "### Application Details\n"
+            "- **Application ID**: CA-20260930-1790777545758\n"
+        )
+    }
+    with pytest.raises(AssertionError, match="not one judgement card"):
+        assert_judgement_card(
+            message,
+            application_id="CA-20260930-1790777545758",
+            expected_outcome="rejected",
+        )
+
+
+def test_judgement_card_accepts_one_decision_line_and_header() -> None:
+    application_id = "CA-20260930-1790777545758"
+    message = {
+        "text": "Decision: rejected. Ronan Calder. LTV and DSCR fail.",
+        "cardsV2": [
+            {
+                "cardId": "judgement",
+                "card": {
+                    "header": {
+                        "title": "Rejected",
+                        "subtitle": f"{application_id}, Ronan Calder",
+                    }
+                },
+            }
+        ],
+    }
+    assert_judgement_card(
+        message,
+        application_id=application_id,
+        expected_outcome="rejected",
+    )
+
+
 def test_follow_up_text_skips_the_http_ack() -> None:
     text = follow_up_text(
         [
@@ -290,6 +373,11 @@ def test_lead_decision_token_reads_first_decision_field() -> None:
     assert lead_decision_token("**Decision:** missing-data") == "missing-data"
     assert lead_decision_token("- **decision**: accept") == "accept"
     assert lead_decision_token("**Decision:** `reject`") == "reject"
+    assert lead_decision_token('{"decision": "accepted"}') == "accept"
+    assert (
+        lead_decision_token('{\n  "decision": "missing-data",\n  "summary": "x"\n}')
+        == "missing-data"
+    )
     assert lead_decision_token("I judge this application as accepted.") == ""
 
 

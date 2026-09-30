@@ -14,14 +14,16 @@ import pytest
 from tests.live_support import (
     ACK_TEXT,
     CHAT_SURFACE,
+    assert_judgement_card,
     assert_manifest_judgement,
-    invoke_agent,
+    invoke_agent_message,
     latest_generated_cases,
     list_thread_messages,
     load_judgement_cases,
     message_names,
     post_chat_message,
     read_follow_up,
+    reply_text,
     require_chat_thread,
     require_manifest_outcomes,
 )
@@ -76,13 +78,18 @@ def test_chat_agent_judgement_matches_manifest(
         intended_outcome=intended_outcome,
         expected_outcome=expected_outcome,
     )
-    text = invoke_agent(
+    message = invoke_agent_message(
         live_env,
         "Evaluate client application "
         f"{application_id} against published credit policy.",
     )
+    assert_judgement_card(
+        message,
+        application_id=application_id,
+        expected_outcome=expected_outcome,
+    )
     assert_manifest_judgement(
-        text,
+        reply_text(message),
         application_id=application_id,
         intended_outcome=intended_outcome,
         expected_outcome=expected_outcome,

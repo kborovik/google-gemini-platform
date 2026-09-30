@@ -598,10 +598,12 @@ def judge_event(
             session_id=session_id(space, thread),
             message=question,
         )
-    except HandlerError:
+    except HandlerError as exc:
+        print(f"judge streamQuery failed: {exc}", file=sys.stderr, flush=True)
         _post_officer_failure(poster, space, thread, message_name)
         return
     if not answer.strip():
+        print("judge streamQuery returned no text", file=sys.stderr, flush=True)
         _post_officer_failure(poster, space, thread, message_name)
         return
     text, cards_v2 = judgement_follow_up(answer)
