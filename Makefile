@@ -243,7 +243,7 @@ prompt:
 
 ##@ Google Cloud:
 
-google: google-config google-auth ## Point the Google CLI at $(PROJECT)
+google: google-config google-auth google-chat ## Log in and refresh application-default credentials
 
 google-auth: ## Log in and refresh application-default credentials
 	$(call need-gcloud)
@@ -327,22 +327,10 @@ uv.lock: pyproject.toml
 help:
 	$(info $(blue)Usage: $(green)gmake [recipe]$(reset))
 	$(info )
-	$(info $(yellow)test$(reset)                unit tests)
-	$(info $(yellow)check$(reset)               ruff + unit tests)
-	$(info $(yellow)generate$(reset)            sample applications, local only)
-	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait)
-	$(info $(yellow)index$(reset)               import client-applications into kb-credit-policies)
-	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
-	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, refresh tokens, judge the last 3 generated filings on the reasoning engine, then the chat service)
-	$(info $(yellow)CHAT_SPACE$(reset)          Credit Policy DM ($(CHAT_SPACE)); CHAT_THREAD is its newest message unless set)
-	$(info $(yellow)google-chat$(reset)         decrypt the desktop client, sign in, and record CHAT_THREAD)
-	$(info $(yellow)terraform$(reset)           plan, confirm, then apply)
-	$(info $(yellow)terraform-plan$(reset)      plan in $(PROJECT))
-	$(info $(yellow)terraform-apply$(reset)     apply; write infra/outputs.json)
-	$(info $(yellow)terraform-destroy$(reset)   destroy workload stack)
-	$(info $(yellow)pause$(reset)               unprovision idle RAG Spanner and scale Chat to zero)
-	$(info $(yellow)google-auth$(reset)         log in and refresh application-default credentials)
-	$(info $(yellow)google-config$(reset)       set project, region, zone, and quota project)
-	$(info $(yellow)google-logout$(reset)       revoke gcloud credentials)
-	$(info $(yellow)release$(reset)             gmake release major|minor|patch)
+	$(info $(yellow)check$(reset)      ruff + unit tests)
+	$(info $(yellow)e2e$(reset)        check, generate, upload, index, refresh tokens, judge the last 3 generated filings on the reasoning engine, then the chat service)
+	$(info $(yellow)terraform$(reset)  plan, confirm, then apply)
+	$(info $(yellow)google$(reset)     log in and refresh application-default credentials)
+	$(info $(yellow)pause$(reset)      unprovision idle RAG Spanner and scale Chat to zero)
+	$(info $(yellow)release$(reset)    gmake release major|minor|patch)
 	:
