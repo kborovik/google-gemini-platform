@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from tests.live_support import (
+    ENGINE_SURFACE,
     agent_judgement_runs,
     assert_manifest_judgement,
     invoke_on_surface,
@@ -23,7 +24,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             "agent_surface,judgement_case",
             [
                 pytest.param(
-                    "google_cloud_run_v2_service.chat",
+                    ENGINE_SURFACE,
                     None,
                     marks=pytest.mark.skip(
                         reason="no data/client-applications/manifest.json"
@@ -33,13 +34,17 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         )
         return
     chosen = latest_generated_cases(cases)
-    runs = agent_judgement_runs(chosen)
+    runs = [
+        (surface, case)
+        for surface, case in agent_judgement_runs(chosen)
+        if surface == ENGINE_SURFACE
+    ]
     ids = [f"{surface}-{case['application_id']}" for surface, case in runs]
     if "agent" in (metafunc.config.option.markexpr or ""):
         filing_ids = [case["application_id"] for case in chosen]
         print(
             f"\nAgent judgement last {len(chosen)} generated of {len(cases)} "
-            f"on the reasoning engine, then chat: {', '.join(filing_ids)}",
+            f"on the reasoning engine: {', '.join(filing_ids)}",
             flush=True,
         )
     metafunc.parametrize(

@@ -62,8 +62,9 @@ def test_index_dry_run_does_not_call_discovery_engine(
     assert result.exit_code == 0, result.output
     lowered = result.output.lower()
     assert "kb-credit-policies" in result.output
-    assert "credit-policies" in result.output
     assert "client-applications" in result.output
+    assert "credit-policies/" not in result.output
+    assert "policy files" not in lowered
     assert "would import" in lowered
     assert "creat" not in lowered
     assert "ensure" not in lowered
@@ -85,7 +86,7 @@ def test_index_wait_rejects_short_local_corpus_before_discovery(
     monkeypatch.setattr("docgen.search_index.VertexSearchOps", _refuse_discovery)
     result = CliRunner().invoke(cli, ["index", "--wait", "--no-terraform"])
     assert result.exit_code == 1
-    assert "policy corpus" in result.output
+    assert "application corpus" in result.output
 
 
 def test_deploy_and_chat_are_not_commands(clean_gcp_env: None) -> None:

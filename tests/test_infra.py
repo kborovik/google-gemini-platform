@@ -164,6 +164,8 @@ def test_makefile_deploy_applies_uploads_and_indexes() -> None:
     assert "terraform-apply" in match.group(0)
     assert "output -raw DATA_STORE" in body
     assert "agents/credit_officer/.env" in body
+    assert "POLICY_PACK_URI=gs://" in body
+    assert "credit-policies/policy-pack.md" in body
     assert "$(UV) run docgen upload" in body
     assert "$(MAKE) index wait=1" in body
     assert "adk deploy" not in text
@@ -261,6 +263,46 @@ def test_makefile_has_no_chat_recipe() -> None:
     assert "need-cloudflared" not in text
 
 
+def test_makefile_chat_thread_uses_desktop_client() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "CHAT_CLIENT_SECRET := google-auth-secret-python-e2e.json.gpg" in text
+    assert "-include $(CHAT_THREAD_FILE)" in text
+    match = re.search(r"^chat-thread:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert match is not None
+    body = match.group(1)
+    assert "gpg --yes --quiet --decrypt --output" in body
+    assert '--client-id-file="$$secret"' in body
+    assert "--no-browser" not in body
+    assert "--no-launch-browser" not in body
+    assert "https://www.googleapis.com/auth/chat.messages.readonly" in body
+    assert "env -u CHAT_THREAD" in body
+    assert "printf 'CHAT_THREAD ?= %s\\n'" in body
+
+
+def test_makefile_e2e_resolves_chat_thread() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "CHAT_SPACE ?= spaces/o0dhSqAAAAE" in text
+    assert "export CHAT_SPACE" in text
+    assert "export CHAT_THREAD" in text
+    match = re.search(r"^e2e:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert match is not None
+    body = match.group(1)
+    assert "gcloud auth application-default print-access-token >/dev/null" in body
+    assert "gcloud auth print-identity-token >/dev/null" in body
+    assert "from tests.live_support import emit_chat_env; emit_chat_env()" in body
+    assert 'eval "$$chat_env"' in body
+
+
+def test_makefile_preflight_sets_gcloud_project() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    assert "export CLOUDSDK_CORE_PROJECT := $(google_project)" in text
+    match = re.search(r"^preflight:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
+    assert match is not None
+    body = match.group(1)
+    assert "gcloud config set core/project $(google_project)" in body
+    assert "gcloud config get-value project" in body
+
+
 def test_makefile_index_wait_flag() -> None:
     text = (repo_root() / "Makefile").read_text(encoding="utf-8")
     match = re.search(r"^index:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
@@ -320,7 +362,8 @@ def test_v8_cloud_run_chat_and_registry_use_workload_region() -> None:
     text = _infra_text()
     assert "run.googleapis.com" in text
     assert "artifactregistry.googleapis.com" in text
-    assert "chat.googleapis.com" not in text
+    assert "chat.googleapis.com" in text
+    assert "cloudtasks.googleapis.com" in text
     assert "us-east5" not in text
     for kind in (
         'resource "google_cloud_run_v2_service" "chat"',
@@ -341,9 +384,32 @@ def test_v16_chat_invoker_is_a_literal() -> None:
     )
     assert names == ["project", "region"]
     iam = (repo_root() / "infra/iam.tf").read_text(encoding="utf-8")
-    assert 'role     = "roles/run.invoker"' in iam
+    assert iam.count('role     = "roles/run.invoker"') == 2
     assert 'member   = "serviceAccount:chat@system.gserviceaccount.com"' in iam
-    assert "allUsers" not in _infra_text()
+    assert "member   = google_service_account.chat_tasks.member" in iam
+    infra = _infra_text()
+    assert "allUsers" not in infra
+    assert 'account_id   = "chat-tasks"' in infra
+    assert 'name     = "${var.project}-chat"' in infra
+    queue = re.search(
+        r'resource "google_cloud_tasks_queue" "chat" \{(?P<body>.*?)\n\}',
+        infra,
+        re.S,
+    )
+    assert queue is not None
+    assert re.search(r"location\s+=\s+var\.region", queue.group("body"))
+    assert 'role     = "roles/cloudtasks.enqueuer"' in infra
+    tasks = (repo_root() / "infra/tasks.tf").read_text(encoding="utf-8")
+    assert (
+        'resource "google_service_account_iam_member" '
+        '"cloudtasks_chat_tasks_token_creator"'
+    ) in tasks
+    assert 'role               = "roles/iam.serviceAccountTokenCreator"' in tasks
+    assert "gcp-sa-cloudtasks.iam.gserviceaccount.com" in tasks
+    assert (
+        'resource "google_service_account_iam_member" "agent_chat_tasks_user"' in tasks
+    )
+    assert tasks.count('role               = "roles/iam.serviceAccountUser"') == 1
 
 
 def test_v18_chat_handler_host() -> None:

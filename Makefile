@@ -25,6 +25,7 @@ dry-run = $(findstring n,$(firstword $(MAKEFLAGS)))
 
 need-terraform = $(if $(dry-run),,$(if $(shell command -v terraform),,$(error terraform not on PATH)))
 need-gcloud = $(if $(dry-run),,$(if $(shell command -v gcloud),,$(error gcloud CLI required)))
+need-gpg = $(if $(dry-run),,$(if $(shell command -v gpg),,$(error gpg not on PATH)))
 need-gcloud-auth = $(if $(dry-run),,$(shell gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q .)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gcloud not authenticated — run: gmake google-auth)))
 need-gh = $(if $(dry-run),,$(if $(shell command -v gh),,$(error gh CLI required)))
 need-gh-auth = $(if $(dry-run),,$(shell gh auth status >/dev/null 2>&1)$(if $(filter 0,$(.SHELLSTATUS)),,$(error gh not authenticated — run: gh auth login)))
@@ -38,12 +39,21 @@ REGION ?= us-east1
 google_project := $(PROJECT)
 google_region := $(REGION)
 google_zone ?= $(google_region)-b
+# Recipes call gcloud without --project. Override the CLI default for this
+# process so a config left on another project cannot select it.
+export CLOUDSDK_CORE_PROJECT := $(google_project)
+# Credit Policy direct message. A shell value wins. e2e fills CHAT_THREAD
+# from the newest message in this space when CHAT_THREAD is unset.
+CHAT_SPACE ?= spaces/o0dhSqAAAAE
+CHAT_CLIENT_SECRET := google-auth-secret-python-e2e.json.gpg
 TFSTATE_BUCKET := terraform-$(PROJECT)
 TF_PREFIX := google-gemini-platform
 TF_VAR_FILE := $(PROJECT).tfvars
 
 git_root := $(shell git rev-parse --show-toplevel)
 terraform_dir := $(git_root)/infra
+CHAT_THREAD_FILE := $(git_root)/.chat-thread.env
+-include $(CHAT_THREAD_FILE)
 terraform_tfvars := $(terraform_dir)/$(TF_VAR_FILE)
 terraform_bucket := $(TFSTATE_BUCKET)
 
@@ -57,7 +67,7 @@ default: help
 .PHONY: terraform terraform-config terraform-fmt terraform-init terraform-validate
 .PHONY: terraform-plan terraform-apply terraform-destroy pause terraform-clean terraform-show terraform-list
 .PHONY: terraform-state-recursive terraform-state-versions terraform-state-unlock prompt
-.PHONY: google google-auth google-logout google-config
+.PHONY: google google-auth google-logout google-config chat-thread
 .PHONY: release major minor patch
 .PHONY: _release-pre _release-bump _release-tag _release-gh
 
@@ -81,7 +91,8 @@ deploy: .venv terraform-apply ## Apply, set DATA_STORE, upload, index
 	$(call header,Reading DATA_STORE)
 	data_store=$$(terraform -chdir=$(terraform_dir) output -raw DATA_STORE) && \
 	test -n "$$data_store" && \
-	printf 'DATA_STORE=%s\n' "$$data_store" > $(git_root)/agents/credit_officer/.env && \
+	printf 'DATA_STORE=%s\nPOLICY_PACK_URI=gs://%s-credit-docs/credit-policies/policy-pack.md\n' \
+		"$$data_store" "$(google_project)" > $(git_root)/agents/credit_officer/.env && \
 	printf '%s\n' "$$data_store"
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload
@@ -96,7 +107,7 @@ endif
 --wait:
 	@:
 
-index: .venv ## Import both prefixes into data store kb-credit-policies
+index: .venv ## Import client-applications into data store kb-credit-policies
 	$(call header,Indexing Agent Search data store)
 	$(UV) run docgen index $(if $(wait),--wait,)
 
@@ -105,19 +116,29 @@ preflight: .venv
 	$(call need-terraform)
 	$(call need-gcloud-auth)
 	$(call header,Google Cloud preflight)
+	gcloud config set core/project $(google_project)
 	gcloud config get-value project
 	terraform version
 
 e2e_target := $(if $(FILE),$(firstword $(wildcard $(FILE) tests/$(FILE) tests/$(FILE).py)),)
 ifneq ($(filter e2e,$(MAKECMDGOALS)),)
 $(if $(FILE),$(if $(e2e_target),,$(error no test file matches FILE=$(FILE))))
+export CHAT_SPACE
+export CHAT_THREAD
 endif
 
-e2e: check preflight generate ## check, generate, upload, index, judge the last 3 generated filings on the reasoning engine, then the chat service
+e2e: check preflight generate ## check, generate, upload, index, refresh tokens, judge the last 3 generated filings on the reasoning engine, then the chat service
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload
 	$(MAKE) index wait=1
-	$(call header,Agent judgement)
+	$(call header,Refreshing credentials)
+	gcloud auth application-default print-access-token >/dev/null
+	gcloud auth print-identity-token >/dev/null
+	$(call header,Resolving Chat thread)
+	chat_env=$$($(UV) run python -c 'from tests.live_support import emit_chat_env; emit_chat_env()') || exit $$?; \
+	eval "$$chat_env"; \
+	printf '%s\n' "CHAT_SPACE=$$CHAT_SPACE" "CHAT_THREAD=$$CHAT_THREAD"; \
+	printf '$(blue)==> Agent judgement <==$(reset)\n'; \
 	$(UV) run pytest -v -ra -s --durations=0 \
 		-m agent --override-ini addopts= $(e2e_target)
 
@@ -235,6 +256,23 @@ google-logout: ## Revoke gcloud credentials
 	$(call header,Logout Google CLI)
 	gcloud auth revoke --all
 
+# Decrypt the desktop client and sign in with chat.messages.readonly, which
+# gcloud's own client rejects. Record CHAT_THREAD for the next make.
+chat-thread: .venv ## Decrypt the desktop client, sign in, and record CHAT_THREAD
+	$(call need-gcloud)
+	$(call need-gpg)
+	$(call header,Resolving Chat thread)
+	set -eu; \
+	secret=$$(mktemp); \
+	trap 'rm -f "$$secret"' EXIT; \
+	gpg --yes --quiet --decrypt --output "$$secret" $(git_root)/$(CHAT_CLIENT_SECRET); \
+	gcloud auth application-default login --client-id-file="$$secret" \
+		--scopes="openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/sqlservice.login,https://www.googleapis.com/auth/siteverification,https://www.googleapis.com/auth/chat.messages.readonly"; \
+	chat_env=$$(env -u CHAT_THREAD CHAT_SPACE='$(CHAT_SPACE)' $(UV) run python -c 'from tests.live_support import emit_chat_env; emit_chat_env()'); \
+	eval "$$chat_env"; \
+	printf 'CHAT_THREAD ?= %s\n' "$$CHAT_THREAD" > $(CHAT_THREAD_FILE); \
+	printf '%s\n' "CHAT_SPACE=$$CHAT_SPACE" "CHAT_THREAD=$$CHAT_THREAD"
+
 google-config: ## Set quota project, project, region, and zone
 	$(call need-gcloud)
 	$(call need-gcloud-auth)
@@ -293,9 +331,11 @@ help:
 	$(info $(yellow)check$(reset)               ruff + unit tests)
 	$(info $(yellow)generate$(reset)            sample applications, local only)
 	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait)
-	$(info $(yellow)index$(reset)               import both prefixes into kb-credit-policies)
+	$(info $(yellow)index$(reset)               import client-applications into kb-credit-policies)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
-	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, judge the last 3 generated filings on the reasoning engine, then the chat service)
+	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, refresh tokens, judge the last 3 generated filings on the reasoning engine, then the chat service)
+	$(info $(yellow)CHAT_SPACE$(reset)          Credit Policy DM ($(CHAT_SPACE)); CHAT_THREAD is its newest message unless set)
+	$(info $(yellow)chat-thread$(reset)         decrypt the desktop client, sign in, and record CHAT_THREAD)
 	$(info $(yellow)terraform$(reset)           plan, confirm, then apply)
 	$(info $(yellow)terraform-plan$(reset)      plan in $(PROJECT))
 	$(info $(yellow)terraform-apply$(reset)     apply; write infra/outputs.json)

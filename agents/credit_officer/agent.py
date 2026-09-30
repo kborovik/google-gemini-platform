@@ -188,10 +188,10 @@ def read_policy_pack(uri: str) -> tuple[str, str]:
     return data.decode("utf-8"), digest
 
 
-def lookup_query(application_id: str, customer_name: str) -> str | None:
+def lookup_query(application_id: str | None, customer_name: str | None) -> str | None:
     """Exactly one identifier. Both empty or both set means no search."""
-    application = application_id.strip()
-    customer = customer_name.strip()
+    application = application_id.strip() if isinstance(application_id, str) else ""
+    customer = customer_name.strip() if isinstance(customer_name, str) else ""
     if bool(application) == bool(customer):
         return None
     return application or customer

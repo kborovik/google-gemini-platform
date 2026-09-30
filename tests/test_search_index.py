@@ -5,10 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from docgen.constants import MIN_APPLICATION_INDEXED_ITEMS, MIN_INDEXED_ITEMS
+from docgen.constants import CLIENT_APPLICATIONS_CORPUS, MIN_APPLICATION_INDEXED_ITEMS
 from docgen.env import repo_root
 from docgen.errors import TalosError
-from docgen.constants import CLIENT_APPLICATIONS_CORPUS
 from docgen.rest import RestResponse
 from docgen.search_index import (
     DATA_STORE_LOCATION,
@@ -21,7 +20,6 @@ from docgen.search_index import (
     import_documents_body,
     import_url,
     indexed_document_uri,
-    policy_object_uris,
     run_index,
 )
 
@@ -69,14 +67,9 @@ class FakeSearch:
 
 
 def _config(tmp_path: Path, **overrides: object) -> IndexConfig:
-    policy = tmp_path / "policies"
     apps = tmp_path / "apps"
-    policy.mkdir(exist_ok=True)
     apps.mkdir(exist_ok=True)
-    policy_count = int(overrides.pop("policy_count", 12))  # type: ignore[arg-type]
     application_count = int(overrides.pop("application_count", 3))  # type: ignore[arg-type]
-    for index in range(policy_count):
-        (policy / f"CP-{index}.md").write_text(f"# {index}\n", encoding="utf-8")
     for index in range(application_count):
         (apps / f"credit-application-{index}.md").write_text(
             "# app\n", encoding="utf-8"
@@ -84,7 +77,6 @@ def _config(tmp_path: Path, **overrides: object) -> IndexConfig:
     values: dict[str, object] = dict(
         project="lab5-gemini-dev1",
         bucket="lab5-gemini-dev1-credit-docs",
-        policy_dir=policy,
         application_dir=apps,
     )
     values.update(overrides)
@@ -125,26 +117,22 @@ def test_index_does_not_create_the_data_store(tmp_path: Path) -> None:
     assert "ensure" not in text
 
 
-def test_import_sends_both_markdown_prefixes(tmp_path: Path) -> None:
+def test_import_sends_client_applications_only(tmp_path: Path) -> None:
     search = FakeSearch()
     run_index(_config(tmp_path), ops=search, echo=lambda _: None)
     imports = [call for call in search.calls if call[0] == "import"]
-    assert len(imports) == 2
-    config = _config(tmp_path)
-    policy_uris = policy_object_uris(
-        "lab5-gemini-dev1-credit-docs", "credit-policies", config.policy_dir
-    )
+    assert len(imports) == 1
     application_uri = gcs_markdown_glob(
         "lab5-gemini-dev1-credit-docs", "client-applications"
     )
-    assert imports[0][2] == tuple(policy_uris)
-    assert "policy-pack.md" not in "".join(policy_uris)
-    assert imports[0][3] is None
-    assert imports[1][2] == (application_uri,)
-    assert imports[1][3] == CLIENT_APPLICATIONS_CORPUS
-    policy_body = import_documents_body(list(imports[0][2]))
-    encoded = json.dumps(policy_body)
-    assert policy_body["gcsSource"]["dataSchema"] == "content"
+    assert imports[0][2] == (application_uri,)
+    assert imports[0][3] == CLIENT_APPLICATIONS_CORPUS
+    joined = " ".join(imports[0][2])
+    assert "credit-policies" not in joined
+    assert "policy-pack.md" not in joined
+    content_body = import_documents_body([application_uri])
+    encoded = json.dumps(content_body)
+    assert content_body["gcsSource"]["dataSchema"] == "content"
     assert "corpus" not in encoded
     assert "rag" not in encoded.lower()
     assert "us-east5" not in encoded
@@ -172,7 +160,7 @@ def test_import_sends_both_markdown_prefixes(tmp_path: Path) -> None:
 
 def test_wait_polls_indexed_counts_to_the_floors(tmp_path: Path) -> None:
     search = FakeSearch()
-    search.uris = _indexed_uris(MIN_INDEXED_ITEMS, MIN_APPLICATION_INDEXED_ITEMS)
+    search.uris = _indexed_uris(0, MIN_APPLICATION_INDEXED_ITEMS)
     run_index(
         _config(tmp_path, wait=True),
         ops=search,
@@ -184,7 +172,7 @@ def test_wait_polls_indexed_counts_to_the_floors(tmp_path: Path) -> None:
 
 def test_wait_application_floor_is_max_of_three_and_local_size(tmp_path: Path) -> None:
     search = FakeSearch()
-    search.uris = _indexed_uris(12, 3)
+    search.uris = _indexed_uris(0, 3)
     with pytest.raises(TalosError, match="applications>=4"):
         run_index(
             _config(tmp_path, wait=True, application_count=4),
@@ -192,7 +180,7 @@ def test_wait_application_floor_is_max_of_three_and_local_size(tmp_path: Path) -
             clock=FakeClock(),
             echo=lambda _: None,
         )
-    search.uris = _indexed_uris(12, 4)
+    search.uris = _indexed_uris(0, 4)
     run_index(
         _config(tmp_path, wait=True, application_count=4),
         ops=search,
@@ -201,11 +189,13 @@ def test_wait_application_floor_is_max_of_three_and_local_size(tmp_path: Path) -
     )
 
 
-def test_wait_fails_before_cloud_when_local_policies_are_short(tmp_path: Path) -> None:
+def test_wait_fails_before_cloud_when_local_applications_are_short(
+    tmp_path: Path,
+) -> None:
     search = FakeSearch()
-    with pytest.raises(TalosError, match="policy corpus"):
+    with pytest.raises(TalosError, match="application corpus"):
         run_index(
-            _config(tmp_path, wait=True, policy_count=11),
+            _config(tmp_path, wait=True, application_count=2),
             ops=search,
             echo=lambda _: None,
         )
@@ -215,7 +205,7 @@ def test_wait_fails_before_cloud_when_local_policies_are_short(tmp_path: Path) -
 def test_import_error_fails(tmp_path: Path) -> None:
     search = FakeSearch()
     search.done = [(True, "discovery quota")]
-    search.uris = _indexed_uris(12, 3)
+    search.uris = _indexed_uris(0, 3)
     with pytest.raises(TalosError, match="discovery quota"):
         run_index(
             _config(tmp_path, wait=True),
@@ -270,11 +260,11 @@ def test_vertex_import_stamps_corpus_on_client_applications_only() -> None:
     )
     rest = _Rest()
     ops = VertexSearchOps(rest, "lab5-gemini-dev1", markdown=markdown)
-    ops.import_uris("kb-credit-policies", ["gs://bucket/credit-policies/*.md"])
-    policy_body = rest.calls[0][2]
-    assert isinstance(policy_body, dict)
-    assert policy_body["gcsSource"]["dataSchema"] == "content"
-    assert "corpus" not in json.dumps(policy_body)
+    ops.import_uris("kb-credit-policies", ["gs://bucket/notes/*.md"])
+    content_body = rest.calls[0][2]
+    assert isinstance(content_body, dict)
+    assert content_body["gcsSource"]["dataSchema"] == "content"
+    assert "corpus" not in json.dumps(content_body)
     rest.calls.clear()
     ops.import_uris(
         "kb-credit-policies",
@@ -321,7 +311,7 @@ def test_wait_does_not_finish_while_an_import_is_still_running(
 ) -> None:
     search = FakeSearch()
     search.done = [(False, None)]
-    search.uris = _indexed_uris(MIN_INDEXED_ITEMS, MIN_APPLICATION_INDEXED_ITEMS)
+    search.uris = _indexed_uris(0, MIN_APPLICATION_INDEXED_ITEMS)
     clock = FakeClock()
     run_index(
         _config(tmp_path, wait=True),

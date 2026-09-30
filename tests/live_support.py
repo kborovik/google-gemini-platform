@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -27,9 +29,11 @@ _QUOTA_RETRY_WAITS = (30.0, 60.0)
 _E2E_SPACE = "spaces/e2e"
 _E2E_USER = "users/e2e"
 # `make e2e` queries the reasoning engine, then the same filings through chat.
+ENGINE_SURFACE = "google_vertex_ai_reasoning_engine"
+CHAT_SURFACE = "google_cloud_run_v2_service.chat"
 AGENT_SURFACES = (
-    "google_vertex_ai_reasoning_engine",
-    "google_cloud_run_v2_service.chat",
+    ENGINE_SURFACE,
+    CHAT_SURFACE,
 )
 _ENGINE_ENV = (
     "GOOGLE_CLOUD_PROJECT",
@@ -38,12 +42,16 @@ _ENGINE_ENV = (
 )
 
 
+ACK_TEXT = "Request received."
+
+
 def chat_message_event(
     user_text: str,
     *,
     thread: str,
     space: str = _E2E_SPACE,
     user: str = _E2E_USER,
+    message_name: str | None = None,
 ) -> dict[str, Any]:
     """Google Chat MESSAGE the public handler accepts."""
     return {
@@ -51,6 +59,7 @@ def chat_message_event(
         "user": {"name": user, "type": "HUMAN"},
         "space": {"name": space},
         "message": {
+            "name": message_name or f"{thread}/messages/e2e",
             "text": user_text,
             "argumentText": user_text,
             "sender": {"name": user, "type": "HUMAN"},
@@ -58,6 +67,122 @@ def chat_message_event(
             "thread": {"name": thread},
         },
     }
+
+
+class ChatListError(AssertionError):
+    """spaces.messages.list failed. Do not poll this error."""
+
+
+def require_chat_thread(env: Mapping[str, str]) -> tuple[str, str]:
+    """Real space and thread. Synthetic ids are not Chat resources."""
+    space = env.get("CHAT_SPACE", "").strip()
+    thread = env.get("CHAT_THREAD", "").strip()
+    if not _chat_thread_names(space, thread):
+        pytest.skip("CHAT_SPACE and CHAT_THREAD must name a real Chat space and thread")
+    return space, thread
+
+
+def _chat_thread_names(space: str, thread: str) -> bool:
+    return space.startswith("spaces/") and thread.startswith(f"{space}/threads/")
+
+
+def thread_name_from_messages(messages: list[Mapping[str, Any]], *, space: str) -> str:
+    """thread.name of the newest message in one space."""
+    ranked: list[tuple[float, str]] = []
+    for message in messages:
+        thread = message.get("thread")
+        name = thread.get("name") if isinstance(thread, dict) else ""
+        if not isinstance(name, str):
+            continue
+        name = name.strip()
+        if not name.startswith(f"{space}/threads/"):
+            continue
+        ranked.append((_create_stamp(message), name))
+    if not ranked:
+        raise ChatListError(f"{space} has no thread")
+    ranked.sort()
+    return ranked[-1][1]
+
+
+def emit_chat_env(messages: list[Mapping[str, Any]] | None = None) -> None:
+    """Print shell exports. A set CHAT_THREAD is kept; otherwise list the space."""
+    import shlex
+
+    space = os.environ.get("CHAT_SPACE", "").strip()
+    thread = os.environ.get("CHAT_THREAD", "").strip()
+    if not space.startswith("spaces/"):
+        raise SystemExit("CHAT_SPACE must be spaces/{id}")
+    if not thread:
+        try:
+            if messages is None:
+                messages = list_recent_messages(space)
+            thread = thread_name_from_messages(messages, space=space)
+        except ChatListError as exc:
+            raise SystemExit(str(exc)) from exc
+    if not _chat_thread_names(space, thread):
+        raise SystemExit("CHAT_THREAD must be {CHAT_SPACE}/threads/{thread}")
+    print(f"export CHAT_SPACE={shlex.quote(space)}")
+    print(f"export CHAT_THREAD={shlex.quote(thread)}")
+
+
+def thread_list_filter(thread: str, *, not_before: float | None = None) -> str:
+    """thread.name stays unquoted. createTime is a quoted RFC3339 timestamp."""
+    clause = f"thread.name = {thread}"
+    if not_before is None:
+        return clause
+    stamp = datetime.fromtimestamp(not_before - 5.0, timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    return f'createTime > "{stamp}" AND {clause}'
+
+
+def message_names(messages: list[Mapping[str, Any]]) -> set[str]:
+    """Resource names already in the thread before this turn is posted."""
+    names: set[str] = set()
+    for message in messages:
+        name = message.get("name")
+        if isinstance(name, str) and name.strip():
+            names.add(name.strip())
+    return names
+
+
+def follow_up_text(
+    messages: list[Mapping[str, Any]],
+    *,
+    not_before: float | None = None,
+    exclude_names: set[str] | None = None,
+) -> str:
+    """Officer, help, or error text from Chat. The HTTP body is only the ack."""
+    texts: list[str] = []
+    for message in messages:
+        name = message.get("name")
+        if exclude_names and isinstance(name, str) and name.strip() in exclude_names:
+            continue
+        sender = message.get("sender")
+        if isinstance(sender, dict) and sender.get("type") == "HUMAN":
+            continue
+        if not_before is not None and not _created_after(message, not_before):
+            continue
+        text = message.get("text")
+        if isinstance(text, str) and text.strip() and text.strip() != ACK_TEXT:
+            texts.append(text.strip())
+    if not texts:
+        raise AssertionError("chat follow-up message is missing")
+    return texts[-1]
+
+
+def _created_after(message: Mapping[str, Any], not_before: float) -> bool:
+    created = message.get("createTime")
+    if not isinstance(created, str) or not created.strip():
+        return False
+    stamp = created.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(stamp)
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp() >= not_before - 5.0
 
 
 def gcloud_identity_token() -> str:
@@ -89,6 +214,7 @@ def post_chat_message(
     thread: str,
     space: str = _E2E_SPACE,
     user: str = _E2E_USER,
+    message_name: str | None = None,
 ) -> dict[str, Any]:
     """POST one Chat MESSAGE to the public handler and return its JSON body."""
     waits = (0.0, *_QUOTA_RETRY_WAITS)
@@ -96,7 +222,13 @@ def post_chat_message(
     for attempt, wait in enumerate(waits):
         if wait:
             time.sleep(wait)
-        body = _post_chat_once(user_text, thread=thread, space=space, user=user)
+        body = _post_chat_once(
+            user_text,
+            thread=thread,
+            space=space,
+            user=user,
+            message_name=message_name,
+        )
         if not quota_exhausted(body) or attempt == len(waits) - 1:
             return body
     assert body is not None
@@ -109,6 +241,7 @@ def _post_chat_once(
     thread: str,
     space: str,
     user: str,
+    message_name: str | None = None,
 ) -> dict[str, Any]:
     try:
         response = requests.post(
@@ -117,7 +250,13 @@ def _post_chat_once(
                 "Authorization": f"Bearer {gcloud_identity_token()}",
                 "Content-Type": "application/json",
             },
-            json=chat_message_event(user_text, thread=thread, space=space, user=user),
+            json=chat_message_event(
+                user_text,
+                thread=thread,
+                space=space,
+                user=user,
+                message_name=message_name,
+            ),
             timeout=CHAT_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
@@ -134,21 +273,272 @@ def _post_chat_once(
     return body
 
 
+def thread_session_url(env: Mapping[str, str], *, space: str, thread: str) -> str:
+    """streamQuery session URL for one Chat space and thread.
+
+    The session id is the space and thread only. Vertex stores that id once
+    per reasoning engine and binds it to one user.
+    """
+    project = env.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    location = env.get("GOOGLE_CLOUD_LOCATION", "").strip()
+    engine = env.get("REASONING_ENGINE", "").strip()
+    if not project or not location or not engine:
+        pytest.fail(
+            "thread session release needs GOOGLE_CLOUD_PROJECT, "
+            "GOOGLE_CLOUD_LOCATION, and REASONING_ENGINE"
+        )
+    chat = _chat_main()
+    try:
+        query_url = chat.stream_query_url(project, location, engine)
+    except chat.HandlerError as exc:
+        pytest.fail(str(exc))
+    session = chat.session_id(space, thread)
+    return f"{query_url.split(':streamQuery', 1)[0]}/sessions/{session}"
+
+
+def release_thread_session(
+    env: Mapping[str, str],
+    *,
+    space: str,
+    thread: str,
+    token: str | None = None,
+    http: Any = requests,
+) -> None:
+    """Delete the thread session so the next user can create it.
+
+    A streamQuery with a different user fails while the id still exists.
+    Missing (HTTP 404) is already released.
+    """
+    url = thread_session_url(env, space=space, thread=thread)
+    bearer = token if token is not None else _cloud_platform_token()
+    headers = {"Authorization": f"Bearer {bearer}"}
+    try:
+        deleted = http.delete(url, headers=headers, timeout=30)
+    except requests.RequestException as exc:
+        pytest.fail(f"DELETE {url} failed: {exc}")
+    if deleted.status_code == 404:
+        return
+    if deleted.status_code not in (200, 204):
+        detail = getattr(deleted, "text", "") or ""
+        pytest.fail(f"DELETE {url} returned {deleted.status_code}: {detail[:300]}")
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            got = http.get(url, headers=headers, timeout=30)
+        except requests.RequestException as exc:
+            pytest.fail(f"GET {url} failed: {exc}")
+        if got.status_code == 404:
+            return
+        if time.monotonic() >= deadline:
+            pytest.fail(f"session still present after delete: HTTP {got.status_code}")
+        time.sleep(0.5)
+
+
+def _cloud_platform_token() -> str:
+    import google.auth
+    import google.auth.exceptions
+    import google.auth.transport.requests
+
+    try:
+        credentials, _detected = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        credentials.refresh(google.auth.transport.requests.Request())
+    except google.auth.exceptions.GoogleAuthError as exc:
+        pytest.fail(f"cloud-platform token was not issued: {exc}")
+    token = getattr(credentials, "token", None)
+    if not isinstance(token, str) or not token:
+        pytest.fail("cloud-platform token was not issued")
+    return token
+
+
 def invoke_agent(env: dict[str, str], user_text: str) -> str:
-    """Ask the deployed officer through https://credit-policy.ai.lab5.ca."""
+    """Ask the deployed officer. The judgement is the Chat follow-up, not the ack.
+
+    Each call uses a new Chat user and deletes the thread session first.
+    Vertex binds that session id to one user, so a new user cannot query it
+    until it is gone. The session is deleted again after the reply.
+    """
     if not env.get("GOOGLE_CLOUD_PROJECT"):
         pytest.fail("GOOGLE_CLOUD_PROJECT is not set")
-    thread = f"{_E2E_SPACE}/threads/{uuid.uuid4().hex}"
-    body = post_chat_message(user_text, thread=thread)
-    text = body.get("text")
-    if not isinstance(text, str) or not text.strip():
-        pytest.fail(f"chat host returned no text: {body}")
-    print_agent_turn(
-        user_text,
-        text,
-        surface="google_cloud_run_v2_service.chat",
-    )
-    return text
+    space, thread = require_chat_thread(env)
+    message_name = f"{thread}/messages/{uuid.uuid4().hex}"
+    user = f"users/e2e-{uuid.uuid4().hex}"
+    release_thread_session(env, space=space, thread=thread)
+    try:
+        started = time.time()
+        # The list filter looks back 5 seconds. That window still contains the
+        # previous turn when the next case starts immediately.
+        already = message_names(
+            list_thread_messages(space=space, thread=thread, not_before=started)
+        )
+        body = post_chat_message(
+            user_text,
+            thread=thread,
+            space=space,
+            user=user,
+            message_name=message_name,
+        )
+        ack = body.get("text")
+        if ack != ACK_TEXT:
+            pytest.fail(f"chat host ack was not {ACK_TEXT!r}: {body}")
+        text = read_follow_up(
+            space=space,
+            thread=thread,
+            not_before=started,
+            exclude_names=already,
+        )
+        if quota_exhausted({"text": text}):
+            pytest.fail(f"chat follow-up exhausted quota: {text}")
+        print_agent_turn(
+            user_text,
+            text,
+            surface=CHAT_SURFACE,
+        )
+        return text
+    finally:
+        release_thread_session(env, space=space, thread=thread)
+
+
+def read_follow_up(
+    *,
+    space: str,
+    thread: str,
+    timeout: float = 200.0,
+    not_before: float | None = None,
+    exclude_names: set[str] | None = None,
+) -> str:
+    """Poll spaces.messages.list until the worker's follow-up is present."""
+    deadline = time.monotonic() + timeout
+    last_error = "chat follow-up message is missing"
+    while True:
+        try:
+            messages = list_thread_messages(
+                space=space, thread=thread, not_before=not_before
+            )
+        except ChatListError as exc:
+            pytest.fail(str(exc))
+        try:
+            return follow_up_text(
+                messages,
+                not_before=not_before,
+                exclude_names=exclude_names,
+            )
+        except ChatListError as exc:
+            pytest.fail(str(exc))
+        except AssertionError as exc:
+            last_error = str(exc)
+        if time.monotonic() >= deadline:
+            pytest.fail(f"follow-up message not posted: {last_error}")
+        time.sleep(2.0)
+
+
+# spaces.messages.list does not accept chat.bot. User auth lists the thread.
+_CHAT_LIST_SCOPE = "https://www.googleapis.com/auth/chat.messages.readonly"
+_LIST_PAGE_CAP = 20
+
+
+def list_recent_messages(space: str, *, page_size: int = 10) -> list[dict[str, Any]]:
+    """Newest messages in a space. One page is enough to name a thread."""
+    try:
+        response = requests.get(
+            f"https://chat.googleapis.com/v1/{space}/messages",
+            headers={"Authorization": f"Bearer {_chat_list_token()}"},
+            params={"pageSize": page_size, "orderBy": "createTime DESC"},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise ChatListError(f"spaces.messages.list failed: {exc}") from exc
+    if response.status_code != 200:
+        raise ChatListError(
+            f"spaces.messages.list returned {response.status_code}: "
+            f"{response.text[:500]}"
+        )
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise ChatListError("spaces.messages.list returned non-JSON") from exc
+    messages = body.get("messages") if isinstance(body, dict) else None
+    if not isinstance(messages, list):
+        return []
+    return [item for item in messages if isinstance(item, dict)]
+
+
+def list_thread_messages(
+    *, space: str, thread: str, not_before: float | None = None
+) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = []
+    page_token = ""
+    list_filter = thread_list_filter(thread, not_before=not_before)
+    for _page in range(_LIST_PAGE_CAP):
+        params: dict[str, str | int] = {
+            "filter": list_filter,
+            "pageSize": 50,
+            "orderBy": "createTime DESC",
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        try:
+            response = requests.get(
+                f"https://chat.googleapis.com/v1/{space}/messages",
+                headers={"Authorization": f"Bearer {_chat_list_token()}"},
+                params=params,
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise ChatListError(f"spaces.messages.list failed: {exc}") from exc
+        if response.status_code != 200:
+            raise ChatListError(
+                f"spaces.messages.list returned {response.status_code}: "
+                f"{response.text[:500]}"
+            )
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise AssertionError("spaces.messages.list returned non-JSON") from exc
+        if not isinstance(body, dict):
+            break
+        messages = body.get("messages")
+        if isinstance(messages, list):
+            collected.extend(item for item in messages if isinstance(item, dict))
+        page_token = body.get("nextPageToken")
+        if not isinstance(page_token, str) or not page_token:
+            break
+    collected.sort(key=_create_stamp)
+    return collected
+
+
+def _chat_list_token() -> str:
+    """User token for spaces.messages.list. chat.bot cannot call that method."""
+    import google.auth
+    import google.auth.exceptions
+    import google.auth.transport.requests
+
+    try:
+        credentials, _detected = google.auth.default(scopes=[_CHAT_LIST_SCOPE])
+        credentials.refresh(google.auth.transport.requests.Request())
+    except google.auth.exceptions.GoogleAuthError as exc:
+        raise ChatListError(
+            f"spaces.messages.list needs a user token with {_CHAT_LIST_SCOPE}: {exc}"
+        ) from exc
+    token = getattr(credentials, "token", None)
+    if not isinstance(token, str) or not token:
+        raise ChatListError("chat list token was not issued")
+    return token
+
+
+def _create_stamp(message: Mapping[str, Any]) -> float:
+    created = message.get("createTime")
+    if not isinstance(created, str) or not created.strip():
+        return 0.0
+    stamp = created.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(stamp)
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
 
 
 def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:
@@ -187,7 +577,7 @@ def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:
         print_agent_turn(
             user_text,
             text,
-            surface="google_vertex_ai_reasoning_engine",
+            surface=ENGINE_SURFACE,
         )
         return text
     pytest.fail("reasoning engine streamQuery failed")
@@ -195,9 +585,9 @@ def invoke_reasoning_engine(env: dict[str, str], user_text: str) -> str:
 
 def invoke_on_surface(env: dict[str, str], user_text: str, surface: str) -> str:
     """Query one deployed surface. Engine and chat stay separate calls."""
-    if surface == "google_vertex_ai_reasoning_engine":
+    if surface == ENGINE_SURFACE:
         return invoke_reasoning_engine(env, user_text)
-    if surface == "google_cloud_run_v2_service.chat":
+    if surface == CHAT_SURFACE:
         return invoke_agent(env, user_text)
     pytest.fail(f"unknown agent surface: {surface}")
 
@@ -309,12 +699,16 @@ def assert_manifest_judgement(
     intended_outcome: str,
     expected_outcome: str,
 ) -> None:
-    """Received Judgement decision matches both manifest outcome fields."""
+    """The reply names this filing and its decision matches the manifest."""
     require_manifest_outcomes(
         application_id=application_id,
         intended_outcome=intended_outcome,
         expected_outcome=expected_outcome,
     )
+    if application_id not in text:
+        raise AssertionError(
+            f"{application_id}: reply does not identify that application\n{text}"
+        )
     try:
         assert_expected_decision(text, expected_outcome)
     except AssertionError as exc:

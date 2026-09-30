@@ -91,3 +91,12 @@ resource "google_cloud_run_v2_service_iam_member" "chat_invoker" {
   role     = "roles/run.invoker"
   member   = "serviceAccount:chat@system.gserviceaccount.com"
 }
+
+# Cloud Tasks calls POST /tasks/judge. The Chat binding above stays.
+resource "google_cloud_run_v2_service_iam_member" "chat_tasks_invoker" {
+  project  = var.project
+  location = var.region
+  name     = google_cloud_run_v2_service.chat.name
+  role     = "roles/run.invoker"
+  member   = google_service_account.chat_tasks.member
+}
