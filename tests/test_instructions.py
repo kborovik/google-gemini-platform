@@ -43,3 +43,22 @@ def test_instructions_contain_evaluation_mode() -> None:
     assert "infer" in text.lower()
     assert "filename" in text.lower()
     assert "judgement" in text.lower()
+
+
+def test_v20_instructions_emit_one_judgement_object() -> None:
+    text = (repo_root() / DEFAULT_INSTRUCTIONS_RELATIVE).read_text(encoding="utf-8")
+    assert "one JSON object" in text
+    assert "Do not emit `cardsV2`." in text
+    assert "`decision`" in text
+    assert "`application_id`" in text
+    assert "`summary`" in text
+    assert "`findings`" in text
+    assert "`label`" in text
+    assert "`cite`" in text
+    assert "`applicant`" in text
+    assert "`product`" in text
+    assert "`attached`" in text
+    assert "`missing_items`" in text
+    assert "No application matched that id or name." in text
+    assert "stay prose" in text
+    assert "Do not use `**` or `###`." in text

@@ -48,7 +48,13 @@ CHAT_SYSTEM_ACCOUNT = "chat@system.gserviceaccount.com"
 _JUDGE_PATH = "/tasks/judge"
 _APPLICATION_ID = re.compile(r"(?<![A-Za-z0-9])CA-\d{8}-\d+(?![A-Za-z0-9])")
 _TASK_ID_CHARS = re.compile(r"[^A-Za-z0-9_-]")
+_CITE_FILE = re.compile(r"^[^\s/]+\.[^\s/]+$")
 _CHAT_API = "https://chat.googleapis.com/v1"
+_DECISION_TITLES = {
+    "accepted": "Accepted",
+    "rejected": "Rejected",
+    "missing-data": "Missing data",
+}
 
 
 class HandlerError(Exception):
@@ -99,6 +105,7 @@ class ChatPoster(Protocol):
         thread: str,
         text: str,
         request_id: str,
+        cards_v2: list[Mapping[str, Any]] | None = None,
     ) -> Mapping[str, Any]: ...
 
 
@@ -140,6 +147,16 @@ def outcome_request_id(message_name: str, outcome: str) -> str:
 def list_ids_text(ids: list[str]) -> str:
     listed = ", ".join(ids)
     return f"More than one credit application id matched: {listed}. No judgement."
+
+
+def judgement_follow_up(
+    answer: str,
+) -> tuple[str, list[dict[str, Any]] | None]:
+    """One-line text plus a card, or the model text when it is not a judgement."""
+    card = _judgement_card(answer)
+    if card is None:
+        return answer, None
+    return card
 
 
 def task_http_body(
@@ -458,6 +475,7 @@ class RestChatPoster:
         thread: str,
         text: str,
         request_id: str,
+        cards_v2: list[Mapping[str, Any]] | None = None,
     ) -> Mapping[str, Any]:
         if self._client is None:
             # A quota-project header requires serviceusage.services.use.
@@ -469,10 +487,13 @@ class RestChatPoster:
             f"?requestId={quote(request_id, safe='')}"
             "&messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"
         )
+        body: dict[str, Any] = {"text": text, "thread": {"name": thread}}
+        if cards_v2 is not None:
+            body["cardsV2"] = cards_v2
         response = self._client.request(
             "POST",
             url,
-            json_body={"text": text, "thread": {"name": thread}},
+            json_body=body,
             timeout=30.0,
         )
         raise_for_status(response, "spaces.messages.create")
@@ -583,12 +604,14 @@ def judge_event(
     if not answer.strip():
         _post_officer_failure(poster, space, thread, message_name)
         return
+    text, cards_v2 = judgement_follow_up(answer)
     _post(
         poster,
         space=space,
         thread=thread,
-        text=answer,
+        text=text,
         request_id=outcome_request_id(message_name, "judgement"),
+        cards_v2=cards_v2,
     )
 
 
@@ -743,13 +766,190 @@ def _post(
     thread: str,
     text: str,
     request_id: str,
+    cards_v2: list[dict[str, Any]] | None = None,
 ) -> None:
     poster.create_message(
         parent=space,
         thread=thread,
         text=text,
         request_id=request_id,
+        cards_v2=cards_v2,
     )
+
+
+def _json_object(answer: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(answer.strip())
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _judgement_card(answer: str) -> tuple[str, list[dict[str, Any]]] | None:
+    parsed = _json_object(answer)
+    if parsed is None:
+        return None
+    decision = parsed.get("decision")
+    if not isinstance(decision, str) or decision not in _DECISION_TITLES:
+        return None
+    application_id = _required_text(parsed.get("application_id"))
+    summary = parsed.get("summary")
+    findings = parsed.get("findings")
+    if application_id is None or not isinstance(summary, str):
+        return None
+    if not isinstance(findings, list):
+        return None
+    applicant = _optional_text(parsed, "applicant")
+    product = _optional_text(parsed, "product")
+    attached = _optional_strings(parsed, "attached")
+    missing_items = _optional_strings(parsed, "missing_items")
+    if (
+        applicant is None
+        or product is None
+        or attached is None
+        or missing_items is None
+    ):
+        return None
+    finding_rows = _finding_rows(findings)
+    if finding_rows is None:
+        return None
+    if not _widget_text_ok([applicant, product, *attached, *missing_items]):
+        return None
+    sections = _card_sections(
+        decision=decision,
+        applicant=applicant,
+        product=product,
+        findings=finding_rows,
+        attached=attached,
+        missing_items=missing_items,
+    )
+    subtitle = application_id
+    if applicant:
+        subtitle = f"{application_id}, {applicant}"
+    card: dict[str, Any] = {
+        "header": {"title": _DECISION_TITLES[decision], "subtitle": subtitle},
+    }
+    if sections:
+        card["sections"] = sections
+    return (
+        _decision_line(decision, applicant, summary),
+        [{"cardId": "judgement", "card": card}],
+    )
+
+
+def _decision_line(decision: str, applicant: str, summary: str) -> str:
+    parts = [f"Decision: {decision}."]
+    if applicant:
+        parts.append(f"{applicant}.")
+    summary_line = " ".join(summary.split())
+    if summary_line:
+        parts.append(summary_line)
+    return " ".join(parts)
+
+
+def _card_sections(
+    *,
+    decision: str,
+    applicant: str,
+    product: str,
+    findings: list[dict[str, Any]],
+    attached: list[str],
+    missing_items: list[str],
+) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    application: list[dict[str, Any]] = []
+    if applicant:
+        application.append(_labeled_row("Applicant", applicant))
+    if product:
+        application.append(_labeled_row("Product", product))
+    if application:
+        sections.append({"header": "Application", "widgets": application})
+    if findings:
+        sections.append({"header": "Findings", "widgets": findings})
+    documents: list[dict[str, Any]] = []
+    attached_text = ", ".join(attached)
+    if attached_text:
+        documents.append(_labeled_row("Attached", attached_text))
+    if decision == "missing-data":
+        documents.extend(_labeled_row("Missing", item) for item in missing_items)
+    if documents:
+        sections.append({"header": "Documents", "widgets": documents})
+    return sections
+
+
+def _finding_rows(findings: list[Any]) -> list[dict[str, Any]] | None:
+    rows: list[dict[str, Any]] = []
+    for item in findings:
+        if not isinstance(item, dict):
+            return None
+        label = _required_text(item.get("label"))
+        text = _required_text(item.get("text"))
+        cite = _required_text(item.get("cite"))
+        if label is None or text is None or cite is None or not _is_cite(cite):
+            return None
+        if not _widget_text_ok([label, text, cite]):
+            return None
+        rows.append(
+            {
+                "decoratedText": {
+                    "topLabel": label,
+                    "text": text,
+                    "bottomLabel": cite,
+                }
+            }
+        )
+    return rows
+
+
+def _labeled_row(label: str, text: str) -> dict[str, Any]:
+    return {"decoratedText": {"topLabel": label, "text": text}}
+
+
+def _required_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return stripped
+
+
+def _optional_text(obj: Mapping[str, Any], key: str) -> str | None:
+    if key not in obj:
+        return ""
+    value = obj[key]
+    if not isinstance(value, str):
+        return None
+    return value.strip()
+
+
+def _optional_strings(obj: Mapping[str, Any], key: str) -> list[str] | None:
+    if key not in obj:
+        return []
+    value = obj[key]
+    if not isinstance(value, list):
+        return None
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return None
+        stripped = item.strip()
+        if stripped:
+            items.append(stripped)
+    return items
+
+
+def _is_cite(value: str) -> bool:
+    if value.startswith("gs://"):
+        rest = value.removeprefix("gs://")
+        return bool(rest) and " " not in rest
+    return _CITE_FILE.fullmatch(value) is not None
+
+
+def _widget_text_ok(values: list[str]) -> bool:
+    return all("**" not in value and "###" not in value for value in values)
 
 
 def _post_officer_failure(

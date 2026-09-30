@@ -102,7 +102,7 @@ class IdempotentPoster:
 
     def __init__(self) -> None:
         self.stored: dict[str, dict[str, object]] = {}
-        self.calls: list[dict[str, str]] = []
+        self.calls: list[dict[str, object]] = []
 
     def create_message(
         self,
@@ -111,23 +111,27 @@ class IdempotentPoster:
         thread: str,
         text: str,
         request_id: str,
+        cards_v2: list[dict[str, object]] | None = None,
     ) -> dict[str, object]:
-        self.calls.append(
-            {
-                "parent": parent,
-                "thread": thread,
-                "text": text,
-                "request_id": request_id,
-            }
-        )
+        call: dict[str, object] = {
+            "parent": parent,
+            "thread": thread,
+            "text": text,
+            "request_id": request_id,
+        }
+        if cards_v2 is not None:
+            call["cards_v2"] = cards_v2
+        self.calls.append(call)
         existing = self.stored.get(request_id)
         if existing is not None:
             return dict(existing)
-        message = {
+        message: dict[str, object] = {
             "name": f"{parent}/messages/{request_id}",
             "text": text,
             "thread": {"name": thread},
         }
+        if cards_v2 is not None:
+            message["cardsV2"] = cards_v2
         self.stored[request_id] = message
         return dict(message)
 
@@ -403,6 +407,7 @@ def test_zero_ids_post_help_and_do_not_call_stream_query() -> None:
     judge_event(_event(), runtime, poster)
     assert runtime.calls == []
     assert poster.calls[0]["text"] == HELP_TEXT
+    assert "cards_v2" not in poster.calls[0]
     assert "CA-{YYYYMMDD}-{unix_ms}" in HELP_TEXT
     assert APP_ID in HELP_TEXT
     assert poster.calls[0]["parent"] == SPACE
@@ -430,6 +435,7 @@ def test_many_ids_are_listed_and_not_judged() -> None:
     assert OTHER_ID in posted
     assert posted.index(OTHER_ID) < posted.index(APP_ID)
     assert "No judgement." in posted
+    assert "cards_v2" not in poster.calls[0]
     assert poster.calls[0]["request_id"] == outcome_request_id(MESSAGE, "list")
 
 
@@ -441,9 +447,245 @@ def test_one_id_calls_stream_query_and_posts_officer_text() -> None:
     judge_event(_event(text=question, argument=question), runtime, poster)
     assert runtime.calls == [(USER, session_id(SPACE, THREAD), question)]
     assert poster.calls[0]["text"] == answer
+    assert "cards_v2" not in poster.calls[0]
     assert poster.calls[0]["request_id"] == outcome_request_id(MESSAGE, "judgement")
     assert poster.calls[0]["request_id"] != outcome_request_id(MESSAGE, "help")
     assert poster.calls[0]["request_id"] != outcome_request_id(MESSAGE, "failure")
+
+
+def _judge_answer(answer: str) -> IdempotentPoster:
+    poster = IdempotentPoster()
+    question = f"Evaluate client application {APP_ID} against published credit policy."
+    judge_event(
+        _event(text=question, argument=question),
+        FakeRuntime(answer),
+        poster,
+    )
+    return poster
+
+
+def _finding(label: str, text: str, cite: str) -> dict[str, str]:
+    return {"label": label, "text": text, "cite": cite}
+
+
+def _judgement_json(**overrides: object) -> str:
+    payload: dict[str, object] = {
+        "decision": "missing-data",
+        "application_id": APP_ID,
+        "applicant": "Ada Lovelace",
+        "product": "Residential mortgage",
+        "summary": "The appraisal is missing.",
+        "findings": [
+            _finding(
+                "LTV",
+                "72% is within 80%.",
+                "CP-RML-2026-01-residential-mortgage.md",
+            ),
+            _finding(
+                "Appraisal",
+                "The filing has no appraisal date.",
+                "credit-application-CA-20260115-1736899200123.md",
+            ),
+        ],
+        "attached": ["Income statement", "Photo id"],
+        "missing_items": ["Appraisal", "Personal guarantee"],
+    }
+    payload.update(overrides)
+    return json.dumps(payload)
+
+
+def _card(poster: IdempotentPoster) -> dict[str, object]:
+    cards = poster.calls[0]["cards_v2"]
+    assert isinstance(cards, list) and len(cards) == 1
+    card = cards[0]
+    assert isinstance(card, dict)
+    return card
+
+
+def _sections(card: dict[str, object]) -> dict[str, list[object]]:
+    body = card["card"]
+    assert isinstance(body, dict)
+    sections = body["sections"]
+    assert isinstance(sections, list)
+    found: dict[str, list[object]] = {}
+    for section in sections:
+        assert isinstance(section, dict)
+        header = section["header"]
+        widgets = section["widgets"]
+        assert isinstance(header, str)
+        assert isinstance(widgets, list)
+        found[header] = widgets
+    return found
+
+
+def test_v1_card_findings_come_only_from_the_object() -> None:
+    poster = _judge_answer(_judgement_json())
+    sections = _sections(_card(poster))
+    assert sections["Findings"] == [
+        {
+            "decoratedText": {
+                "topLabel": "LTV",
+                "text": "72% is within 80%.",
+                "bottomLabel": "CP-RML-2026-01-residential-mortgage.md",
+            }
+        },
+        {
+            "decoratedText": {
+                "topLabel": "Appraisal",
+                "text": "The filing has no appraisal date.",
+                "bottomLabel": "credit-application-CA-20260115-1736899200123.md",
+            }
+        },
+    ]
+
+
+def test_v3_finding_cite_is_the_bottom_label() -> None:
+    cite = (
+        "gs://lab5-gemini-dev1-credit-docs/client-applications/"
+        "credit-application-CA-20260115-1736899200123.md"
+    )
+    poster = _judge_answer(
+        _judgement_json(
+            decision="accepted",
+            findings=[_finding("LTV", "72% is within 80%.", cite)],
+            attached=[],
+            missing_items=["Personal guarantee"],
+        )
+    )
+    sections = _sections(_card(poster))
+    assert sections["Findings"] == [
+        {
+            "decoratedText": {
+                "topLabel": "LTV",
+                "text": "72% is within 80%.",
+                "bottomLabel": cite,
+            }
+        }
+    ]
+    assert "Documents" not in sections
+    bad = _judgement_json(
+        findings=[_finding("LTV", "72% is within 80%.", "Credit Committee")]
+    )
+    plain = _judge_answer(bad)
+    assert plain.calls[0]["text"] == bad
+    assert "cards_v2" not in plain.calls[0]
+
+
+def test_v4_one_id_json_posts_a_card() -> None:
+    poster = _judge_answer(_judgement_json(decision="rejected"))
+    assert poster.calls[0]["request_id"] == outcome_request_id(MESSAGE, "judgement")
+    card = _card(poster)
+    assert card["cardId"] == "judgement"
+    assert "cards_v2" in poster.calls[0]
+
+
+@pytest.mark.parametrize(
+    ("decision", "title"),
+    [
+        ("accepted", "Accepted"),
+        ("rejected", "Rejected"),
+        ("missing-data", "Missing data"),
+    ],
+)
+def test_v20_header_title(decision: str, title: str) -> None:
+    poster = _judge_answer(_judgement_json(decision=decision))
+    body = _card(poster)["card"]
+    assert isinstance(body, dict)
+    assert body["header"] == {
+        "title": title,
+        "subtitle": f"{APP_ID}, Ada Lovelace",
+    }
+
+
+def test_v20_card_rows_and_one_line_text() -> None:
+    poster = _judge_answer(_judgement_json())
+    assert poster.calls[0]["text"] == (
+        "Decision: missing-data. Ada Lovelace. The appraisal is missing."
+    )
+    assert "\n" not in str(poster.calls[0]["text"])
+    card = _card(poster)
+    assert card["cardId"] == "judgement"
+    sections = _sections(card)
+    assert list(sections) == ["Application", "Findings", "Documents"]
+    assert sections["Application"] == [
+        {"decoratedText": {"topLabel": "Applicant", "text": "Ada Lovelace"}},
+        {"decoratedText": {"topLabel": "Product", "text": "Residential mortgage"}},
+    ]
+    assert sections["Documents"] == [
+        {
+            "decoratedText": {
+                "topLabel": "Attached",
+                "text": "Income statement, Photo id",
+            }
+        },
+        {"decoratedText": {"topLabel": "Missing", "text": "Appraisal"}},
+        {"decoratedText": {"topLabel": "Missing", "text": "Personal guarantee"}},
+    ]
+    encoded = json.dumps(card)
+    assert "markupSyntax" not in encoded
+    assert "**" not in encoded
+    assert "###" not in encoded
+
+
+def test_v20_empty_applicant_is_omitted_and_missing_items_wait_for_missing_data() -> (
+    None
+):
+    answer = _judgement_json(
+        decision="accepted",
+        applicant="",
+        summary="Every published threshold clears.",
+        findings=[
+            _finding(
+                "LTV",
+                "72% is within 80%.",
+                "CP-RML-2026-01-residential-mortgage.md",
+            )
+        ],
+        attached=[],
+        missing_items=["Personal guarantee"],
+    )
+    poster = _judge_answer(answer)
+    assert poster.calls[0]["text"] == (
+        "Decision: accepted. Every published threshold clears."
+    )
+    body = _card(poster)["card"]
+    assert isinstance(body, dict)
+    assert body["header"] == {"title": "Accepted", "subtitle": APP_ID}
+    sections = _sections(_card(poster))
+    assert list(sections) == ["Application", "Findings"]
+    assert sections["Application"] == [
+        {"decoratedText": {"topLabel": "Product", "text": "Residential mortgage"}}
+    ]
+
+
+def test_v20_miss_sentence_and_parse_failure_stay_plain_text() -> None:
+    miss = "No application matched that id or name."
+    posted = _judge_answer(miss)
+    assert posted.calls[0]["text"] == miss
+    assert "cards_v2" not in posted.calls[0]
+    fenced = "```json\n" + _judgement_json() + "\n```"
+    fenced_post = _judge_answer(fenced)
+    assert fenced_post.calls[0]["text"] == fenced
+    assert "cards_v2" not in fenced_post.calls[0]
+    absent = _judgement_json()
+    payload = json.loads(absent)
+    del payload["decision"]
+    raw = json.dumps(payload)
+    absent_post = _judge_answer(raw)
+    assert absent_post.calls[0]["text"] == raw
+    assert "cards_v2" not in absent_post.calls[0]
+    marked = _judgement_json(
+        findings=[
+            _finding(
+                "LTV",
+                "72% is **within** 80%.",
+                "CP-RML-2026-01-residential-mortgage.md",
+            )
+        ]
+    )
+    marked_post = _judge_answer(marked)
+    assert marked_post.calls[0]["text"] == marked
+    assert "cards_v2" not in marked_post.calls[0]
 
 
 def test_officer_failure_posts_an_error_sentence(
@@ -464,6 +706,7 @@ def test_officer_failure_posts_an_error_sentence(
     assert status == 200
     assert reply == {}
     assert poster.calls[0]["text"] == OFFICER_ERROR_TEXT
+    assert "cards_v2" not in poster.calls[0]
     assert "decision" not in OFFICER_ERROR_TEXT
     assert poster.calls[0]["request_id"] == outcome_request_id(MESSAGE, "failure")
     assert poster.calls[0]["request_id"] != outcome_request_id(MESSAGE, "judgement")
@@ -669,6 +912,34 @@ def test_create_url_uses_stable_request_id_and_thread() -> None:
     assert f"requestId={request_id}" in url
     assert "messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD" in url
     assert body == {"text": "decision: accept", "thread": {"name": THREAD}}
+
+
+def test_v20_create_body_sends_cards_v2_with_the_one_line() -> None:
+    rest = FakeRest(json.dumps({"name": f"{SPACE}/messages/created"}))
+    poster = RestChatPoster(
+        ChatHandlerConfig("lab5-gemini-dev1", "us-east1", "99"),
+        client=rest,
+    )
+    cards = [
+        {
+            "cardId": "judgement",
+            "card": {"header": {"title": "Accepted", "subtitle": APP_ID}},
+        }
+    ]
+    poster.create_message(
+        parent=SPACE,
+        thread=THREAD,
+        text="Decision: accepted. Every published threshold clears.",
+        request_id=outcome_request_id(MESSAGE, "judgement"),
+        cards_v2=cards,
+    )
+    body = rest.calls[0][2]
+    assert body == {
+        "text": "Decision: accepted. Every published threshold clears.",
+        "thread": {"name": THREAD},
+        "cardsV2": cards,
+    }
+    assert "markupSyntax" not in json.dumps(body)
 
 
 def test_queue_name_is_composed_from_the_project() -> None:
