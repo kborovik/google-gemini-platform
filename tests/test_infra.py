@@ -287,6 +287,8 @@ def test_makefile_e2e_resolves_chat_thread() -> None:
     match = re.search(r"^e2e:[^\n]*\n((?:[ \t].*\n)*)", text, re.M)
     assert match is not None
     body = match.group(1)
+    assert "gcloud auth application-default print-access-token >/dev/null" in body
+    assert "gcloud auth print-identity-token >/dev/null" in body
     assert "from tests.live_support import emit_chat_env; emit_chat_env()" in body
     assert 'eval "$$chat_env"' in body
 

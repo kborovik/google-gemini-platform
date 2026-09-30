@@ -127,10 +127,13 @@ export CHAT_SPACE
 export CHAT_THREAD
 endif
 
-e2e: check preflight generate ## check, generate, upload, index, judge the last 3 generated filings on the reasoning engine, then the chat service
+e2e: check preflight generate ## check, generate, upload, index, refresh tokens, judge the last 3 generated filings on the reasoning engine, then the chat service
 	$(call header,Uploading credit-policy corpus)
 	$(UV) run docgen upload
 	$(MAKE) index wait=1
+	$(call header,Refreshing credentials)
+	gcloud auth application-default print-access-token >/dev/null
+	gcloud auth print-identity-token >/dev/null
 	$(call header,Resolving Chat thread)
 	chat_env=$$($(UV) run python -c 'from tests.live_support import emit_chat_env; emit_chat_env()') || exit $$?; \
 	eval "$$chat_env"; \
@@ -330,7 +333,7 @@ help:
 	$(info $(yellow)deploy$(reset)              apply, DATA_STORE, upload, index --wait)
 	$(info $(yellow)index$(reset)               import client-applications into kb-credit-policies)
 	$(info $(yellow)index wait=1$(reset)        poll indexed counts (also: gmake -- index --wait))
-	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, judge the last 3 generated filings on the reasoning engine, then the chat service)
+	$(info $(yellow)e2e$(reset)                 check, generate, upload, index, refresh tokens, judge the last 3 generated filings on the reasoning engine, then the chat service)
 	$(info $(yellow)CHAT_SPACE$(reset)          Credit Policy DM ($(CHAT_SPACE)); CHAT_THREAD is its newest message unless set)
 	$(info $(yellow)chat-thread$(reset)         decrypt the desktop client, sign in, and record CHAT_THREAD)
 	$(info $(yellow)terraform$(reset)           plan, confirm, then apply)
