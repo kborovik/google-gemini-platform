@@ -49,7 +49,7 @@ flowchart TB
 
 The agent does two jobs:
 
-- Policy Q&A. Quote the number, the conditions, and the source document.
+- Policy questions and answers. Quote the number, the conditions, and the source document.
 - Application evaluation. Compare a sample filing to published policy and return accepted, rejected, or missing-data.
 
 ## Design
