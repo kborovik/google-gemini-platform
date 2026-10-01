@@ -65,7 +65,7 @@ default: help
 
 .PHONY: help test check generate deploy index --wait preflight e2e clean
 .PHONY: terraform terraform-config terraform-fmt terraform-init terraform-validate
-.PHONY: terraform-plan terraform-apply terraform-destroy pause terraform-clean terraform-show terraform-list
+.PHONY: terraform-plan terraform-apply terraform-destroy terraform-destroy-partial pause terraform-clean terraform-show terraform-list
 .PHONY: terraform-state-recursive terraform-state-versions terraform-state-unlock prompt
 .PHONY: google google-auth google-logout google-config google-chat
 .PHONY: release major minor patch
@@ -192,6 +192,15 @@ terraform-destroy: terraform-validate ## Destroy the workload stack
 	$(call header,Terraform destroy $(PROJECT))
 	terraform -chdir=$(terraform_dir) apply -destroy -input=false -refresh=true -var-file=$(TF_VAR_FILE)
 	rm -f $(terraform_dir)/outputs.json
+
+# Chat IAM bindings and the domain mapping reference the service, so Terraform
+# destroys those with it. Bucket, DNS, APIs, and the state bucket stay.
+terraform-destroy-partial: terraform-validate ## Destroy data store, reasoning engine, and Chat service
+	$(call header,Destroy data store reasoning engine and Chat service)
+	terraform -chdir=$(terraform_dir) apply -destroy -input=false -refresh=true -var-file=$(TF_VAR_FILE) \
+		-target=google_discovery_engine_data_store.kb_credit_policies \
+		-target=google_vertex_ai_reasoning_engine.credit_officer \
+		-target=google_cloud_run_v2_service.chat
 
 # Next terraform-apply sets Chat min_instance_count back to 1.
 RAG_IDLE_REGIONS ?= us-west1 us-east4 us-south1 us-west4 europe-west1 europe-west4 asia-east1 asia-northeast1 northamerica-northeast1
@@ -330,6 +339,7 @@ help:
 	$(info $(yellow)check$(reset)      ruff + unit tests)
 	$(info $(yellow)e2e$(reset)        check, generate, upload, index, refresh tokens, judge the last 3 generated filings on the reasoning engine, then the chat service)
 	$(info $(yellow)terraform$(reset)  plan, confirm, then apply)
+	$(info $(yellow)terraform-destroy-partial$(reset)  data store, reasoning engine, and Chat service)
 	$(info $(yellow)google$(reset)     log in and refresh application-default credentials)
 	$(info $(yellow)pause$(reset)      unprovision idle RAG Spanner and scale Chat to zero)
 	$(info $(yellow)release$(reset)    gmake release major|minor|patch)

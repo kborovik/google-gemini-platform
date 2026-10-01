@@ -351,6 +351,24 @@ def test_makefile_terraform_recipes_follow_org_factory() -> None:
     assert "gcloud auth revoke --all" in text
 
 
+def test_makefile_partial_destroy_targets_three_resources() -> None:
+    text = (repo_root() / "Makefile").read_text(encoding="utf-8")
+    match = re.search(
+        r"^terraform-destroy-partial:[^\n]*\n((?:[ \t].*\n)*)",
+        text,
+        re.M,
+    )
+    assert match is not None
+    assert "terraform-validate" in match.group(0).split("\n", 1)[0]
+    body = match.group(1)
+    assert "apply -destroy -input=false -refresh=true -var-file=$(TF_VAR_FILE)" in body
+    assert "-target=google_discovery_engine_data_store.kb_credit_policies" in body
+    assert "-target=google_vertex_ai_reasoning_engine.credit_officer" in body
+    assert "-target=google_cloud_run_v2_service.chat" in body
+    assert body.count("-target=") == 3
+    assert "rm -f $(terraform_dir)/outputs.json" not in body
+
+
 def _infra_text() -> str:
     return "\n".join(
         path.read_text(encoding="utf-8")
